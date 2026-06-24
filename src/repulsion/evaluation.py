@@ -169,14 +169,14 @@ class _EvalState:
 # Disk I/O
 # ---------------------------------------------------------------------------
 
-def _save_incremental(
+def _write_state(
     output_dir: str,
     stem: str,
     steps: list[int],
     arrays: dict[str, list[np.ndarray]],
     meta: dict,
 ) -> None:
-    """Rewrite .npy files with all checkpoints accumulated so far."""
+    """Write .npy files for all accumulated checkpoints."""
     np.save(
         os.path.join(output_dir, f"{stem}_steps.npy"),
         np.array(steps, dtype=np.int64),
@@ -193,7 +193,12 @@ def _save_incremental(
 # ---------------------------------------------------------------------------
 
 class Evaluator:
-    """Runs scheduled evaluations and writes results incrementally to disk.
+    """Runs scheduled evaluations and writes results to disk.
+
+    By default all data is accumulated in memory and written once at the end
+    of training via :meth:`finalize`.  Set ``incremental=True`` to restore the
+    old behaviour of rewriting files after every checkpoint (useful for
+    inspecting partial results, but slow on network filesystems).
 
     Construct via :func:`build_evaluator` rather than calling directly.
 
@@ -205,6 +210,8 @@ class Evaluator:
             :func:`repulsion.training.build_loss_spec`.
         output_dir: Directory for .npy output files (created if absent).
         device: PyTorch device string.
+        incremental: If ``True``, rewrite output files after every checkpoint
+            instead of waiting until :meth:`finalize` is called.
     """
 
     def __init__(
@@ -215,12 +222,16 @@ class Evaluator:
         loss_spec: LossSpec,
         output_dir: str,
         device: str = "cpu",
+        incremental: bool = False,
     ) -> None:
+        self.incremental = incremental
         self.collection = collection
         self.model = model
         self.loss_spec = loss_spec
         self.output_dir = output_dir
         self.device = torch.device(device)
+        # Pending meta for each state — populated on first _run, used by finalize()
+        self._pending_meta: dict[str, dict] = {}
         os.makedirs(output_dir, exist_ok=True)
 
         self._states: list[_EvalState] = []
@@ -254,6 +265,23 @@ class Evaluator:
                 self._run(state, step)
                 if state.log_schedule is not None:
                     state.log_schedule.advance(step)
+
+    def finalize(self) -> None:
+        """Write all accumulated evaluation data to disk.
+
+        Must be called once after training finishes.  When ``incremental=True``
+        this is a no-op because data is written after every checkpoint.
+        """
+        if self.incremental:
+            return
+        for state in self._states:
+            if not state.steps:
+                continue
+            meta = self._pending_meta.get(state.spec.name, {})
+            _write_state(
+                self.output_dir, state.spec.name,
+                state.steps, state.arrays, meta,
+            )
 
     # ------------------------------------------------------------------
     # Scheduling
@@ -333,7 +361,6 @@ class Evaluator:
             if spec.network is not None
             else list(range(len(self.model.networks)))
         )
-        saved: dict[str, list] = {}
         meta_entries = []
         for ni in network_indices:
             net = self.model.networks[ni]
@@ -346,17 +373,18 @@ class Evaluator:
                 key = f"net{ni}_{layer}"
                 arr = np.array(net.extract(x, sample_ids, layer).tolist())
                 state.arrays.setdefault(key, []).append(arr)
-                saved[key] = state.arrays[key]
                 meta_entries.append({"key": key, "network": ni, "layer": layer})
-        _save_incremental(
-            self.output_dir, spec.name,
-            state.steps, saved,
-            meta={
-                "task": spec.task,
-                "save": "representation",
-                "layers": meta_entries,
-            },
-        )
+        meta = {
+            "task": spec.task,
+            "save": "representation",
+            "layers": meta_entries,
+        }
+        self._pending_meta[spec.name] = meta
+        if self.incremental:
+            _write_state(
+                self.output_dir, spec.name,
+                state.steps, state.arrays, meta,
+            )
 
     def _run_output(
         self,
@@ -386,15 +414,19 @@ class Evaluator:
             self._target_written.add(spec.name)
 
         # Accumulate per-slot predictions for each network.
+        n_nets = len(self.model.networks)
         combined_pred: Optional[torch.Tensor] = None
         for ni, net in enumerate(self.model.networks):
             pred = net(x, sample_ids)
             combined_pred = pred if combined_pred is None else combined_pred + pred
-            for slot in active_slots:
-                p_slice = np.array(
-                    pred[:, slot.pred_offset:slot.pred_offset + slot.pred_dim].tolist()
-                )
-                state.arrays.setdefault(f"net{ni}_{slot.label}", []).append(p_slice)
+            # Only save per-stream arrays when there is more than one network;
+            # with a single network the combined output is identical.
+            if n_nets > 1:
+                for slot in active_slots:
+                    p_slice = np.array(
+                        pred[:, slot.pred_offset:slot.pred_offset + slot.pred_dim].tolist()
+                    )
+                    state.arrays.setdefault(f"net{ni}_{slot.label}", []).append(p_slice)
 
         for slot in active_slots:
             p_slice = np.array(
@@ -403,16 +435,18 @@ class Evaluator:
             state.arrays.setdefault(f"combined_{slot.label}", []).append(p_slice)
 
         active_slot_names = [s.label for s in active_slots]
-        _save_incremental(
-            self.output_dir, spec.name,
-            state.steps, state.arrays,
-            meta={
-                "task": spec.task,
-                "save": "output",
-                "n_networks": len(self.model.networks),
-                "active_slots": active_slot_names,
-            },
-        )
+        meta = {
+            "task": spec.task,
+            "save": "output",
+            "n_networks": n_nets,
+            "active_slots": active_slot_names,
+        }
+        self._pending_meta[spec.name] = meta
+        if self.incremental:
+            _write_state(
+                self.output_dir, spec.name,
+                state.steps, state.arrays, meta,
+            )
 
     def _run_loss(
         self,
@@ -424,25 +458,30 @@ class Evaluator:
     ) -> None:
         spec = state.spec
         slot_names = [s.label for s in self.loss_spec.slots]
+        n_nets = len(self.model.networks)
         combined_pred: Optional[torch.Tensor] = None
         for ni, net in enumerate(self.model.networks):
             pred_i = net(x, sample_ids)
-            _, slot_losses = compute_loss(pred_i, y, w, self.loss_spec)
-            row = np.array(
-                [slot_losses.get(s, 0.0) for s in slot_names], dtype=np.float32
-            )
-            state.arrays.setdefault(f"net{ni}", []).append(row)
+            # Only save per-stream loss when there is more than one network.
+            if n_nets > 1:
+                _, slot_losses = compute_loss(pred_i, y, w, self.loss_spec)
+                row = np.array(
+                    [slot_losses.get(s, 0.0) for s in slot_names], dtype=np.float32
+                )
+                state.arrays.setdefault(f"net{ni}", []).append(row)
             combined_pred = pred_i if combined_pred is None else combined_pred + pred_i
         _, slot_losses_combined = compute_loss(combined_pred, y, w, self.loss_spec)
         row_c = np.array(
             [slot_losses_combined.get(s, 0.0) for s in slot_names], dtype=np.float32
         )
         state.arrays.setdefault("combined", []).append(row_c)
-        _save_incremental(
-            self.output_dir, spec.name,
-            state.steps, state.arrays,
-            meta={"task": spec.task, "save": "loss", "slots": slot_names},
-        )
+        meta = {"task": spec.task, "save": "loss", "slots": slot_names}
+        self._pending_meta[spec.name] = meta
+        if self.incremental:
+            _write_state(
+                self.output_dir, spec.name,
+                state.steps, state.arrays, meta,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +495,7 @@ def build_evaluator(
     loss_spec: LossSpec,
     output_dir: str,
     device: str = "cpu",
+    incremental: bool = False,
 ) -> Evaluator:
     """Build an :class:`Evaluator` from a list of spec dicts or :class:`EvalSpec` objects.
 
@@ -467,9 +507,12 @@ def build_evaluator(
         loss_spec: Precomputed loss layout.
         output_dir: Directory for .npy output files.
         device: PyTorch device string.
+        incremental: If ``True``, rewrite output files after every checkpoint.
+            Default is ``False`` (write once at the end via
+            :meth:`Evaluator.finalize`).
     """
     parsed = [
         s if isinstance(s, EvalSpec) else parse_eval_spec(s)
         for s in specs
     ]
-    return Evaluator(parsed, collection, model, loss_spec, output_dir, device)
+    return Evaluator(parsed, collection, model, loss_spec, output_dir, device, incremental)

@@ -489,5 +489,7 @@ def train_schedule(
     if _loss_csv_file is not None:
         _loss_csv_file.close()
 
+    if evaluator is not None:
+        evaluator.finalize()
 
     return history
