@@ -1,0 +1,10 @@
+# @package hydra.launcher
+
+_target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+
+partition: abbott
+timeout_min: 1440
+cpus_per_task: 2
+mem_gb: 32
+
+submitit_folder: ${hydra.sweep.dir}/.submitit/%j
