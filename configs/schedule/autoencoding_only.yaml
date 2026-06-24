@@ -1,0 +1,9 @@
+# @package _global_.schedule
+#
+# Single-task autoencoding only, 20 epochs, full-batch.
+
+component_type: autoencoding
+batch_size: null
+lr: 0.01
+momentum: 0.9
+epochs: 20

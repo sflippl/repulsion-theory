@@ -1,0 +1,29 @@
+# @package _global_.model
+#
+# Two-stream model for the autoencoding task.
+#
+# Stream 1: plain MLP.
+# Stream 2: same input, but with a 1000-dim frozen random projection using
+#   k-winner-takes-all (top 3% active).  Implements the reservoir-computing
+#   stream described in the spec.
+#
+# Final prediction = net1(input) + net2(input).
+# Slot routing is defined in the dataset config under ``model_slots``.
+
+networks:
+  - name: net1
+    hidden_sizes: [256]
+    activation: identity
+    init_scale: 0.2
+    attention_layer: false
+    fixed_projection: false
+
+  - name: net2
+    hidden_sizes: [256]
+    activation: identity
+    init_scale: 0.2
+    attention_layer: false
+    fixed_projection: true
+    fixed_projection_hidden_size: 1000
+    fixed_projection_activation: kwta
+    fixed_projection_kwta_frac: 0.03

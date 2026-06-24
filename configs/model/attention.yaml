@@ -1,0 +1,17 @@
+# @package _global_.model
+#
+# Single network with a slot-grouped, sample-shared attention layer.
+# The attention layer assigns one learnable weight per input slot (not per
+# dimension), sharpened by gating=5.0.
+# Slot routing is defined in the dataset config under ``model_slots``.
+
+networks:
+  - name: model
+    hidden_sizes: [256]
+    activation: identity
+    init_scale: 0.01
+    attention_layer: true
+    attention_layer_slot_grouping: true   # one logit per slot (not per dim)
+    attention_layer_sample_grouping: true # shared across all samples
+    attention_layer_gating: 10.0
+    fixed_projection: false

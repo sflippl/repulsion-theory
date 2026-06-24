@@ -1,0 +1,13 @@
+# @package _global_.model
+#
+# Single network stream: reads all input slots, predicts all output slots.
+# One hidden layer of 256 units with identity activation.
+# Slot routing is defined in the dataset config under ``model_slots``.
+
+networks:
+  - name: model
+    hidden_sizes: [128]
+    activation: identity
+    init_scale: 0.2
+    attention_layer: false
+    fixed_projection: false

@@ -1,0 +1,16 @@
+defaults:
+  - base_config
+  - items: default
+  - dataset: default
+  - model: linear_network
+  - schedule: simple
+  - training: sgd
+  - evaluation: none
+  - _self_
+
+seed: 42
+device: cpu
+
+# Set to a directory path to write training_loss.csv and eval .npy files there.
+# null → use Hydra's default outputs/YYYY-MM-DD/HH-MM-SS/ run directory.
+output_dir: null

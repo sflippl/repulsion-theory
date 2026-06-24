@@ -1,0 +1,13 @@
+# @package _global_.training
+#
+# Adam optimiser with a moderate learning rate.
+
+optimizer: adam
+lr: 1.0e-3
+momentum: 0.9        # ignored by Adam; kept for schema completeness
+separate_attention: false
+attention_optimizer: adam
+attention_lr: 1.0e-3
+attention_momentum: 0.9
+network_steps: 1
+attention_steps: 1

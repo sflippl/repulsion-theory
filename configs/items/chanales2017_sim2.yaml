@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+  - /experiment_hparams: chanales2017_sim2
+
+items:
+  items:
+    - name: route_common
+      corr_between: ${experiment_hparams.route_corr_between}
+      corr_within: 1.0
+      n_groups: 2
+      n_items: 2
+      dim: ${experiment_hparams.dim_shared}
+    - name: route_distinct
+      corr_between: ${experiment_hparams.route_corr_between}
+      corr_within: ${experiment_hparams.route_corr_between}
+      n_groups: 2
+      n_items: 2
+      dim: ${sub:${experiment_hparams.dim_total},${experiment_hparams.dim_shared}}
+    - name: destination
+      corr_between: ${experiment_hparams.destination_corr}
+      corr_within: ${experiment_hparams.destination_corr}
+      n_groups: 2
+      n_items: 2
+      dim: ${experiment_hparams.dim_total}

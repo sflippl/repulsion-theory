@@ -1,0 +1,6 @@
+# @package _global_.evaluation
+#
+# No evaluations.  training_loss.csv is still written by default when
+# output_dir is set.
+
+evaluations: []

@@ -1,0 +1,34 @@
+# @package _global_.items
+#
+# Two item types (face, object), each with three subgroups that vary in
+# within-group similarity.  Item vectors have 64 dimensions by default.
+#
+# Naming convention: {item_name}_{subgroup_name}_{group_id}_{item_id}
+# e.g. face_high_sim_1_1, object_low_sim_3_2
+
+items:
+  - name: face
+    corr_between: 0.0
+    n_groups: 6
+    n_items: 2
+    dim: 64
+    subgroups:
+      - name: high_sim
+        corr_within: 0.8
+      - name: med_sim
+        corr_within: 0.5
+      - name: low_sim
+        corr_within: 0.0
+
+  - name: object
+    corr_between: 0.0
+    n_groups: 6
+    n_items: 2
+    dim: 64
+    subgroups:
+      - name: high_sim
+        corr_within: 0.8
+      - name: med_sim
+        corr_within: 0.5
+      - name: low_sim
+        corr_within: 0.0

@@ -1,0 +1,35 @@
+# @package _global_.dataset
+
+slots:
+  input:
+    face: face
+    scene: scene
+  output:
+    face: face
+    scene: scene
+tasks:
+  - name: autoencoding
+    input:
+      face:
+        magnitude: 1.0
+      scene:
+        magnitude: 1.0
+    output:
+      face:
+        magnitude: 1.0
+      scene:
+        magnitude: 1.0
+  - name: face_prediction
+    input:
+      scene:
+        magnitude: 1.0
+    output:
+      face:
+        magnitude: 1.0
+  - name: scene_input
+    input:
+      scene:
+        magnitude: 1.0
+    output:
+      scene:
+        magnitude: 1.0

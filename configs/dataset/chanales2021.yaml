@@ -1,0 +1,65 @@
+# @package _global_.dataset
+
+slots:
+  input:
+    color: color
+    face: face
+    object: object
+  output:
+    color: color
+    face: face
+    object: object
+    face2: face
+tasks:
+  - name: autoencoding
+    input:
+      color:
+        magnitude: 1.0
+      face:
+        magnitude: 1.0
+      object:
+        magnitude: 1.0
+    output:
+      color:
+        magnitude: 1.0
+      face:
+        magnitude: 1.0
+      object:
+        magnitude: 1.0
+  - name: association
+    input:
+      color:
+        magnitude: 1.0
+      object:
+        magnitude: 1.0
+    output:
+      face2:
+        magnitude: 1.0
+  - name: association_group
+    input:
+      face:
+        magnitude: 1.0
+    output:
+      face2:
+        magnitude: 1.0
+        manipulation: group
+  - name: prediction_evaluation
+    input:
+      face:
+        magnitude: 1.0
+      object:
+        magnitude: 1.0
+    output:
+      color:
+        magnitude: 1.0
+  - name: prediction_test
+    input:
+      face:
+        magnitude: 1.0
+      object:
+        magnitude: 1.0
+    output:
+      face:
+        magnitude: 1.0
+      object:
+        magnitude: 1.0

@@ -1,0 +1,17 @@
+# @package _global_.schedule
+#
+# Default schedule: alternate autoencoding and pairmate_prediction for 10
+# outer repetitions.  Each outer repeat consists of:
+#   • 2 epochs of autoencoding
+#   • 1 epoch of pairmate_prediction (loss weight 0.1)
+#
+# Total: 10 × (2 + 1) = 30 epochs.
+
+component_type:
+  - component_type: autoencoding
+    epochs: 2
+
+batch_size: null    # null = full-batch
+lr: 0.1
+momentum: 0.9
+epochs: 10

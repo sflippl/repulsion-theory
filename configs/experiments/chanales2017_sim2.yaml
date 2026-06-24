@@ -1,0 +1,6 @@
+# @package _global_
+defaults:
+  - override /dataset: chanales2017_sim2
+  - override /schedule: chanales2017
+  - override /items: chanales2017_sim2
+  - override /evaluation: chanales2017

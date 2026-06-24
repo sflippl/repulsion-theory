@@ -1,0 +1,9 @@
+# @package _global_.schedule
+
+component_type:
+  - autoencoding
+  - face_prediction
+epochs: 8
+joint: true
+weights: [1.0, 0.0]
+batch_size: 1

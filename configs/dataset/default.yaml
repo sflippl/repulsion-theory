@@ -1,0 +1,36 @@
+# @package _global_.dataset
+#
+# Slot layout and task definitions for the default two-item-type experiment.
+#
+# slots.input / slots.output define the ordered named slots that form the
+# concatenated input and output tensors.  Labels must be unique within input
+# and within output; they can be reused across the two.
+#
+# Each task entry activates a subset of slots.  Unlisted slots are set to NaN
+# (disabled).  Manipulation options: "default" (raw item vector) or "group"
+# (mean of all items in the same group).
+
+slots:
+  input:
+    Face: face
+    Object: object
+  output:
+    Face: face
+    Object: object
+
+tasks:
+  - name: autoencoding
+    input:
+      Face:
+        magnitude: 1.0
+        manipulation: default
+      Object:
+        magnitude: 1.0
+        manipulation: default
+    output:
+      Face:
+        magnitude: 1.0
+        manipulation: default
+      Object:
+        magnitude: 1.0
+        manipulation: default

@@ -1,0 +1,19 @@
+# @package _global_.model
+
+networks:
+  - name: net1
+    hidden_sizes: [256]
+    activation: identity
+    init_scale: 0.2
+    attention_layer: true
+    fixed_projection: false
+
+  - name: net2
+    hidden_sizes: [256]
+    activation: identity
+    init_scale: 0.2
+    attention_layer: true
+    fixed_projection: true
+    fixed_projection_hidden_size: 1000
+    fixed_projection_activation: kwta
+    fixed_projection_kwta_frac: 0.03

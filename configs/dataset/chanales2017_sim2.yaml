@@ -1,0 +1,18 @@
+# @package _global_.dataset
+
+slots:
+  input:
+    route_common: route_common
+    route_distinct: route_distinct
+  output:
+    destination: destination
+tasks:
+  - name: prediction
+    input:
+      route_common:
+        magnitude: 1.0
+      route_distinct:
+        magnitude: 1.0
+    output:
+      destination:
+        magnitude: 1.0

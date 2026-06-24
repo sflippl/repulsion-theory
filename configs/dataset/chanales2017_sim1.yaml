@@ -1,0 +1,15 @@
+# @package _global_.dataset
+
+slots:
+  input:
+    route: route
+  output:
+    destination: destination
+tasks:
+  - name: prediction
+    input:
+      route:
+        magnitude: 1.0
+    output:
+      destination:
+        magnitude: 1.0
