@@ -9,7 +9,7 @@ items:
       n_groups: 6
       n_items: 2
       bump_width: ${experiment_hparams.bump_width}
-      dim: 1152 # 64 dimensions per group
+      dim: 324 # 64 dimensions per group
       subgroups:
         - name: ultra_sim
           distance: 6.0

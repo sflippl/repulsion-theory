@@ -6,7 +6,7 @@ defaults:
   - override /evaluation: chanales2021
 
 experiment_hparams:
-  bump_width: 12.0
+  bump_width: 24.0
   prediction_test_weight: 1.0
   association_weight: 1.0
   face_corr: 0.05

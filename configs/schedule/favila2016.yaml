@@ -5,5 +5,5 @@ component_type:
   - face_prediction
 epochs: 8
 joint: true
-weights: [1.0, 0.0]
+weights: [1.0, 0.1]
 batch_size: 1

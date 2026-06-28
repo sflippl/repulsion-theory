@@ -216,53 +216,27 @@ def exact_from_corr_matrix(
 
 
 # ---------------------------------------------------------------------------
-# Circular Gaussian bump generation
+# Circular Epanechnikov bump generation
 # ---------------------------------------------------------------------------
 
 def generate_circular_items(
     item_spec: ItemSpec,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    """Generate stimulus vectors using a circular Gaussian bump encoding.
+    """Generate stimulus vectors using a circular Epanechnikov encoding."""
 
-    Each group and subgroup gets a contiguous slice of
-    ``dim // (n_subgroups × n_groups)`` dimensions.  The slice for subgroup
-    ``sg_idx``, group ``g_idx`` starts at index
-    ``(sg_idx × n_groups + g_idx) × dims_per_partition``.
-    Dimension ``k`` within a partition's slice represents angle
-    ``360° × k / dims_per_partition``.  Item *i* (0-indexed) within a group is
-    placed at angle ``θ₀ + i × distance``, where ``θ₀ ~ Uniform(0°, 360°)``
-    is drawn independently per (subgroup, group) pair.  The bump value at
-    dimension ``k`` is::
-
-        exp(−circ_dist(item_angle, dim_angle)² / (2 × bump_width²))
-
-    where ``circ_dist`` is the shorter arc on a 360° circle.  Each vector is
-    L2-normalised after the bump is applied.
-
-    Items from different groups or different subgroups occupy disjoint
-    dimension slices and are therefore orthogonal.
-
-    Args:
-        item_spec: Fully-resolved circular item specification.
-        rng: NumPy random generator for the per-group starting angles.
-
-    Returns:
-        Array of shape ``(N, dim)`` in the same row order as
-        :func:`build_item_corr_matrix` (subgroups → groups → items).
-        Each row is L2-normalised.
-    """
     assert item_spec.stimulus_type == "circular"
 
     n_subgroups = len(item_spec.subgroups)
-    n_groups = item_spec.subgroups[0].n_groups  # all subgroups share n_groups
+    n_groups = item_spec.subgroups[0].n_groups
     dims_per_partition = item_spec.dim // (n_subgroups * n_groups)
 
-    # One random starting angle per (subgroup, group) partition
     start_angles = rng.uniform(0.0, 360.0, size=(n_subgroups, n_groups))
 
-    # Angles represented by each dimension within a partition's slice
-    dim_angles = np.arange(dims_per_partition, dtype=np.float64) * (360.0 / dims_per_partition)
+    dim_angles = (
+        np.arange(dims_per_partition, dtype=np.float64)
+        * (360.0 / dims_per_partition)
+    )
 
     N = sum(sg.n_groups * sg.n_items for sg in item_spec.subgroups)
     vectors = np.zeros((N, item_spec.dim), dtype=np.float64)
@@ -270,23 +244,30 @@ def generate_circular_items(
     row = 0
     for sg_idx, sg in enumerate(item_spec.subgroups):
         distance = sg.distance
-        bump_width = sg.bump_width
+        bump_width = sg.bump_width  # support radius
+
         for g_idx in range(sg.n_groups):
             theta0 = start_angles[sg_idx, g_idx]
             partition_start = (sg_idx * n_groups + g_idx) * dims_per_partition
+
             for i_idx in range(sg.n_items):
                 item_angle = (theta0 + i_idx * distance) % 360.0
-                # Circular distance between item angle and each dimension's angle
+
                 delta = np.abs(item_angle - dim_angles)
-                circ_dist = np.minimum(delta, 360.0 - delta)  # (dims_per_partition,)
-                bump = np.exp(-0.5 * (circ_dist / bump_width) ** 2)
-                # Place bump in the partition's slice; rest stays zero
+                circ_dist = np.minimum(delta, 360.0 - delta)
+
+                # Epanechnikov kernel (quadratic bump)
+                x = circ_dist / bump_width
+                bump = 1.0 - x * x
+                bump = np.maximum(bump, 0.0)
+
                 vec = np.zeros(item_spec.dim, dtype=np.float64)
                 vec[partition_start: partition_start + dims_per_partition] = bump
-                # L2-normalise
+
                 norm = np.linalg.norm(vec)
                 if norm > 0.0:
                     vec /= norm
+
                 vectors[row] = vec
                 row += 1
 
