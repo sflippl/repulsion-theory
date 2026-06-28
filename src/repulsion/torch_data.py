@@ -56,10 +56,22 @@ class PhaseTorchDataset(Dataset):
     ) -> None:
         self._dtype = np.float32 if dtype == "float32" else np.float64
         self._samples: list[PhaseSample] = []
+        # Per-task noise std arrays (shape: total_dim); 0.0 where no noise.
+        self._noise_stds_x: list[np.ndarray] = []
+        self._noise_stds_y: list[np.ndarray] = []
+        self._has_noise_x: list[bool] = []
+        self._has_noise_y: list[bool] = []
 
         for task_idx, task_name in enumerate(phase.tasks):
             task_ds = collection[task_name]
             weight = float(phase.weights[task_idx])
+
+            stds_x = task_ds.input_noise_stds.astype(self._dtype)
+            stds_y = task_ds.output_noise_stds.astype(self._dtype)
+            self._noise_stds_x.append(stds_x)
+            self._noise_stds_y.append(stds_y)
+            self._has_noise_x.append(bool(stds_x.any()))
+            self._has_noise_y.append(bool(stds_y.any()))
 
             for row_idx, row in enumerate(task_ds.rows):
                 self._samples.append(
@@ -78,11 +90,18 @@ class PhaseTorchDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict:
         s = self._samples[idx]
+        ti = s.task_index
+        x = s.x
+        y = s.y
+        if self._has_noise_x[ti]:
+            x = x + np.random.standard_normal(x.shape).astype(self._dtype) * self._noise_stds_x[ti]
+        if self._has_noise_y[ti]:
+            y = y + np.random.standard_normal(y.shape).astype(self._dtype) * self._noise_stds_y[ti]
         return {
-            "input": torch.tensor(s.x.tolist()),
-            "output": torch.tensor(s.y.tolist()),
+            "input": torch.tensor(x.tolist()),
+            "output": torch.tensor(y.tolist()),
             "task": s.task_name,
-            "task_index": s.task_index,
+            "task_index": ti,
             "task_weight": float(s.task_weight),
             "row_index": s.row_index,
         }
@@ -194,20 +213,30 @@ class JointPhaseTorchDataset(Dataset):
         self._task_outputs = [ds.output for ds in task_datasets]  # list of (N, output_dim)
         self._weights = list(phase.weights)
         self._task_names = list(phase.tasks)
+        # Per-task noise std arrays (shape: total_dim); 0.0 where no noise.
+        self._noise_stds_x = [ds.input_noise_stds.astype(self._dtype) for ds in task_datasets]
+        self._noise_stds_y = [ds.output_noise_stds.astype(self._dtype) for ds in task_datasets]
+        self._has_noise_x = [bool(s.any()) for s in self._noise_stds_x]
+        self._has_noise_y = [bool(s.any()) for s in self._noise_stds_y]
 
     def __len__(self) -> int:
         return len(self._rows)
 
     def __getitem__(self, idx: int) -> dict:
         row = self._rows[idx]
-        inputs = np.stack([
-            np.asarray(task_x[idx], dtype=self._dtype)
-            for task_x in self._task_inputs
-        ])  # (n_tasks, input_dim)
-        outputs = np.stack([
-            np.asarray(task_y[idx], dtype=self._dtype)
-            for task_y in self._task_outputs
-        ])  # (n_tasks, output_dim)
+        xs = []
+        ys = []
+        for i, (task_x, task_y) in enumerate(zip(self._task_inputs, self._task_outputs)):
+            x = np.asarray(task_x[idx], dtype=self._dtype)
+            y = np.asarray(task_y[idx], dtype=self._dtype)
+            if self._has_noise_x[i]:
+                x = x + np.random.standard_normal(x.shape).astype(self._dtype) * self._noise_stds_x[i]
+            if self._has_noise_y[i]:
+                y = y + np.random.standard_normal(y.shape).astype(self._dtype) * self._noise_stds_y[i]
+            xs.append(x)
+            ys.append(y)
+        inputs = np.stack(xs)   # (n_tasks, input_dim)
+        outputs = np.stack(ys)  # (n_tasks, output_dim)
         return {
             "inputs": torch.tensor(inputs.tolist()),     # (n_tasks, input_dim)
             "outputs": torch.tensor(outputs.tolist()),   # (n_tasks, output_dim)

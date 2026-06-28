@@ -132,8 +132,26 @@ def _apply_manipulation(
         raise ValueError(f"Unknown manipulation: {cfg.manipulation!r}")
 
 
-# ---------------------------------------------------------------------------
-# TaskDataset
+def _build_noise_std_array(
+    slot_defs: tuple,
+    config: dict,
+    dims: dict,
+) -> np.ndarray:
+    """Build a ``(total_dim,)`` float64 array of per-feature noise standard deviations.
+
+    For each slot the std is taken from ``cfg.noise_std`` (0.0 if disabled or
+    if the slot uses a classification loss, since adding noise to integer labels
+    is not meaningful).
+    """
+    parts = []
+    for slot_def in slot_defs:
+        cfg = config[slot_def.label]
+        dim = dims[slot_def.label]
+        if cfg is not None and slot_def.loss_type == "mse" and cfg.noise_std > 0.0:
+            parts.append(np.full(dim, cfg.noise_std, dtype=np.float64))
+        else:
+            parts.append(np.zeros(dim, dtype=np.float64))
+    return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
 # ---------------------------------------------------------------------------
 
 class TaskDataset:
@@ -277,6 +295,13 @@ class TaskDataset:
 
         self.input: np.ndarray = _concat(self.input_slot_arrays, spec.input_slots)
         self.output: np.ndarray = _concat(self.output_slot_arrays, spec.output_slots)
+
+        self.input_noise_stds: np.ndarray = _build_noise_std_array(
+            spec.input_slots, task.input_config, self.input_slot_dims
+        )
+        self.output_noise_stds: np.ndarray = _build_noise_std_array(
+            spec.output_slots, task.output_config, self.output_slot_dims
+        )
 
     def __repr__(self) -> str:  # noqa: D401
         return (

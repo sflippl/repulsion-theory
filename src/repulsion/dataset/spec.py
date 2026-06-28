@@ -56,6 +56,9 @@ class SlotConfig:
     """Configuration of one active slot within a specific task."""
     magnitude: float = 1.0
     manipulation: str = "default"
+    noise_std: float = 0.0
+    """Standard deviation of Gaussian noise added to this slot's vector at training time.
+    Applied independently on input and output. Zero means no noise (default)."""
 
 
 @dataclass
@@ -162,9 +165,15 @@ def parse_dataset_spec(slots: dict, tasks: list[dict], model_slots: dict | None 
                 f"Task '{task_name}', slot '{label}': manipulation must be one of "
                 f"{set(VALID_MANIPULATIONS)}, got {manipulation!r}."
             )
+        noise_std = float(d.get("noise_std", 0.0))
+        if noise_std < 0.0:
+            raise ValueError(
+                f"Task '{task_name}', slot '{label}': noise_std must be >= 0, got {noise_std}."
+            )
         return SlotConfig(
             magnitude=float(d.get("magnitude", 1.0)),
             manipulation=manipulation,
+            noise_std=noise_std,
         )
 
     parsed_tasks: list[TaskSpec] = []
