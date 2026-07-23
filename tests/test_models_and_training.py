@@ -374,6 +374,90 @@ class TestNetworkForward:
         pred = model(x)
         assert pred.shape[0] == N_ROWS
 
+    def test_model_with_shared_attention(self, collection):
+        """Shared attention at MultiNetwork level: operates on full input before distribution."""
+        model = parse_model_spec(
+            [
+                {"name": "net1", "input": ["Face1"], "output": ["Face1"]},
+                {"name": "net2", "input": ["Object"], "output": ["Object"]},
+            ],
+            collection,
+            model_cfg={
+                "networks": [],  # ignored here, just needs to be present
+                "shared_attention_layer": True,
+            },
+        )
+        assert model.shared_attention is not None
+        # Shared attention operates on full input (Face1 + Object = 2*DIM)
+        assert model.shared_attention.input_dim == 2 * DIM
+        x = torch.randn(N_ROWS, 2 * DIM)
+        pred = model(x)
+        assert pred.shape[0] == N_ROWS
+
+    def test_shared_attention_slot_grouping(self, collection):
+        """Shared attention with slot grouping: one logit per full-input slot."""
+        model = parse_model_spec(
+            [{"name": "net", "input": ["Face1", "Object"], "output": ["Face1"]}],
+            collection,
+            model_cfg={
+                "networks": [],
+                "shared_attention_layer": True,
+                "shared_attention_layer_slot_grouping": True,
+            },
+        )
+        assert model.shared_attention is not None
+        # Two slots in the full input → two logits
+        assert model.shared_attention.n_logits == 2
+
+    def test_shared_attention_params_in_attention_params(self, collection):
+        """attention_params() includes shared attention parameters."""
+        model = parse_model_spec(
+            [{"name": "net", "input": ["Face1"], "output": ["Face1"]}],
+            collection,
+            model_cfg={
+                "networks": [],
+                "shared_attention_layer": True,
+            },
+        )
+        attn_params = model.attention_params()
+        assert len(attn_params) > 0
+        shared_param_ids = {id(p) for p in model.shared_attention.parameters()}
+        assert any(id(p) in shared_param_ids for p in attn_params)
+
+    def test_shared_attention_not_in_network_params(self, collection):
+        """network_params() excludes shared attention parameters."""
+        model = parse_model_spec(
+            [{"name": "net", "input": ["Face1"], "output": ["Face1"]}],
+            collection,
+            model_cfg={
+                "networks": [],
+                "shared_attention_layer": True,
+            },
+        )
+        net_param_ids = {id(p) for p in model.network_params()}
+        for p in model.shared_attention.parameters():
+            assert id(p) not in net_param_ids
+
+    def test_shared_attention_modifies_input_before_distribution(self, collection):
+        """Zero all logits → identity; non-zero logits change per-network input."""
+        model = parse_model_spec(
+            [{"name": "net", "input": ["Face1", "Object"], "output": ["Face1", "Object", "Face2"]}],
+            collection,
+            model_cfg={
+                "networks": [],
+                "shared_attention_layer": True,
+            },
+        )
+        x = torch.randn(N_ROWS, 2 * DIM)
+        # With all-zero logits (default) shared attention is identity
+        pred_default = model(x).detach().clone()
+        # Force a non-uniform attention weight
+        with torch.no_grad():
+            model.shared_attention.logits.fill_(5.0)
+            model.shared_attention.logits[0] = -5.0
+        pred_biased = model(x).detach().clone()
+        assert not torch.allclose(pred_default, pred_biased)
+
 
 # ===========================================================================
 # 5. Loss computation

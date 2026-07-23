@@ -114,8 +114,13 @@ def main(cfg: DictConfig) -> None:
 
     # ── 3. Model ──────────────────────────────────────────────────────────
     log.info("Building model …")
-    networks_cfg: list = _container(cfg.model)["networks"]
-    model = parse_model_spec(networks_cfg, collection, dataset_spec=collection.spec)
+    model_cfg: dict = _container(cfg.model)
+    networks_cfg: list = model_cfg["networks"]
+    model = parse_model_spec(
+        networks_cfg, collection,
+        dataset_spec=collection.spec,
+        model_cfg=model_cfg,
+    )
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     log.info("Model: %d trainable parameters.", n_params)
 

@@ -39,10 +39,35 @@ from repulsion.models.network import MultiNetwork, SingleNetwork
 from repulsion.models.projection import RandomProjection
 
 
+def _build_shared_attention(
+    model_cfg: dict | None,
+    input_slot_dims: dict[str, int],
+    row_index_to_id: dict[tuple, int],
+) -> AttentionLayer | None:
+    """Build the model-level shared attention layer, or return None."""
+    if not (model_cfg and model_cfg.get("shared_attention_layer", False)):
+        return None
+
+    total_input_dim = sum(input_slot_dims.values())
+    slot_grouped: bool = model_cfg.get("shared_attention_layer_slot_grouping", False)
+    per_sample: bool = not model_cfg.get("shared_attention_layer_sample_grouping", True)
+    gating: float = float(model_cfg.get("shared_attention_layer_gating", 1.0))
+
+    slot_dims = list(input_slot_dims.values()) if slot_grouped else None
+    return AttentionLayer(
+        input_dim=total_input_dim,
+        slot_dims=slot_dims,
+        gating=gating,
+        per_sample=per_sample,
+        row_index_to_id=row_index_to_id if per_sample else None,
+    )
+
+
 def parse_model_spec(
     specs: list[dict],
     collection: DatasetCollection,
     dataset_spec: DatasetSpec | None = None,
+    model_cfg: dict | None = None,
 ) -> MultiNetwork:
     """Build a :class:`MultiNetwork` from specification dicts and a dataset.
 
@@ -63,6 +88,17 @@ def parse_model_spec(
             ``"output"`` keys are still accepted as a fallback when
             *dataset_spec* is ``None`` or the network is absent from
             ``model_slots``.
+        collection: Built dataset collection used to derive slot layout.
+        dataset_spec: Parsed dataset specification carrying ``model_slots``.
+        model_cfg: Optional top-level model configuration dict (the full
+            ``cfg.model`` container).  Used to configure the optional shared
+            attention layer that operates on the full input *before* it is
+            distributed to individual network streams.  Supported keys:
+
+            * ``shared_attention_layer`` (bool, default False)
+            * ``shared_attention_layer_slot_grouping`` (bool, default False)
+            * ``shared_attention_layer_sample_grouping`` (bool, default True)
+            * ``shared_attention_layer_gating`` (float, default 1.0)
         collection: Built dataset collection used to derive slot layout.
         dataset_spec: Parsed dataset specification carrying ``model_slots``.
 
@@ -212,4 +248,7 @@ def parse_model_spec(
         networks=networks,
         global_prediction_dim=global_prediction_dim,
         row_index_to_id=row_index_to_id if has_per_sample_attn else None,
+        shared_attention_layer=_build_shared_attention(
+            model_cfg, input_slot_dims, row_index_to_id
+        ),
     )

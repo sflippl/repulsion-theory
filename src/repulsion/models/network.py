@@ -269,11 +269,28 @@ class MultiNetwork(nn.Module):
         networks: list[SingleNetwork],
         global_prediction_dim: int,
         row_index_to_id: Optional[dict[tuple, int]] = None,
+        shared_attention_layer: Optional[AttentionLayer] = None,
     ) -> None:
         super().__init__()
         self.networks = nn.ModuleList(networks)
         self.global_prediction_dim = global_prediction_dim
         self.row_index_to_id = row_index_to_id
+        self.shared_attention = shared_attention_layer  # applied to full input before distribution
+
+    def prepare_input(
+        self,
+        full_input: torch.Tensor,
+        sample_ids: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Apply the shared attention layer (if present) to the full input.
+
+        Call this once before distributing *full_input* to per-network extract()
+        or forward() calls when bypassing :meth:`forward`.
+        Returns *full_input* unchanged when no shared attention is configured.
+        """
+        if self.shared_attention is not None:
+            return self.shared_attention(full_input, sample_ids)
+        return full_input
 
     def network_params(self) -> list[nn.Parameter]:
         """MLP parameters only (excludes attention; projection is always frozen)."""
@@ -283,15 +300,19 @@ class MultiNetwork(nn.Module):
         return params
 
     def attention_params(self) -> list[nn.Parameter]:
-        """Attention layer parameters across all streams."""
+        """Attention layer parameters across all streams, plus the shared attention."""
         params: list[nn.Parameter] = []
+        if self.shared_attention is not None:
+            params.extend(self.shared_attention.parameters())
         for net in self.networks:
             if net.attention is not None:
                 params.extend(net.attention.parameters())
         return params
 
     def has_attention(self) -> bool:
-        return any(net.attention is not None for net in self.networks)
+        return self.shared_attention is not None or any(
+            net.attention is not None for net in self.networks
+        )
 
     def get_sample_ids(
         self,
@@ -313,6 +334,7 @@ class MultiNetwork(nn.Module):
         full_input: torch.Tensor,
         sample_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        full_input = self.prepare_input(full_input, sample_ids)
         result: Optional[torch.Tensor] = None
         for net in self.networks:
             out = net(full_input, sample_ids)

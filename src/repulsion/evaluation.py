@@ -328,10 +328,13 @@ class Evaluator:
         state.steps.append(step)
 
         if spec.save == "representation":
-            self._run_representation(state, x, sample_ids)
+            # Pre-apply shared attention so per-network extract() sees attended input.
+            self._run_representation(state, self.model.prepare_input(x, sample_ids), sample_ids)
         elif spec.save == "output":
-            self._run_output(state, x, y, sample_ids)
+            # Pre-apply shared attention so per-network forward() sees attended input.
+            self._run_output(state, self.model.prepare_input(x, sample_ids), y, sample_ids)
         elif spec.save == "loss":
+            # Loss path calls model.forward() which applies shared attention internally.
             self._run_loss(state, x, y, w, sample_ids)
 
     def _save_rows_once(self, spec_name: str, task_name: str) -> None:

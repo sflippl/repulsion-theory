@@ -107,8 +107,18 @@ class NetworkConf:
 
 @dataclass
 class ModelConf:
-    """List of network stream specifications."""
+    """Top-level model configuration.
+
+    ``networks`` holds the per-stream specs; the remaining fields configure
+    the optional *shared* attention layer that operates on the full input
+    before it is distributed to individual streams.
+    """
     networks: List[Any] = MISSING
+    # Shared (pre-distribution) attention layer
+    shared_attention_layer: bool = False
+    shared_attention_layer_slot_grouping: bool = False
+    shared_attention_layer_sample_grouping: bool = True
+    shared_attention_layer_gating: float = 1.0
 
 
 # ---------------------------------------------------------------------------
