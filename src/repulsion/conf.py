@@ -171,6 +171,14 @@ class Favila2016HParams(ExperimentHParams):
     prediction_weight: float = 1.0
 
 @dataclass
+class Favila2016V2HParams(ExperimentHParams):
+    scene_corr_between: float = 0.0
+    dims_shared: int = 64
+    dims_unique: int = 64
+    face_corr: float = 0.05
+    prediction_weight: float = 1.0
+
+@dataclass
 class Chanales2017Sim1HParams(ExperimentHParams):
     route_corr_between: float = 0.0
     route_corr_within: float = 0.9
@@ -231,6 +239,12 @@ def _register() -> None:
         group="experiment_hparams",
         name="favila2016",
         node=Favila2016HParams,
+    )
+
+    cs.store(
+        group="experiment_hparams",
+        name="favila2016_v2",
+        node=Favila2016V2HParams,
     )
     cs.store(
         group="experiment_hparams",
