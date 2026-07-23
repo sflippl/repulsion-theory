@@ -12,24 +12,24 @@ tasks:
     input:
       face:
         magnitude: 1.0
-      scene:
+      object:
         magnitude: 1.0
     output:
       face:
         magnitude: 1.0
-      scene:
+      object:
         magnitude: 1.0
   - name: face_prediction
     input:
-      scene:
+      object:
         magnitude: 1.0
     output:
       face:
         magnitude: 1.0
   - name: scene_input
     input:
-      scene:
+      object:
         magnitude: 1.0
     output:
-      scene:
+      object:
         magnitude: 1.0

@@ -171,6 +171,7 @@ def parse_model_spec(
         projection_layer: RandomProjection | None = None
         if spec.get("fixed_projection", False):
             this_input_dim = sum(input_slot_dims[s] for s in input_slots)
+            slot_grouped: bool = spec.get("fixed_projection_slot_grouping", False)
             proj_out_dim: int = int(spec.get("fixed_projection_hidden_size", 1000))
             proj_act: str = spec.get("fixed_projection_activation", "identity")
             proj_act_kw: dict = {}
@@ -180,10 +181,12 @@ def parse_model_spec(
                 proj_act_kw["negative_slope"] = float(
                     spec.get("fixed_projection_leaky_relu_slope", 0.01)
                 )
+            slot_dims_for_proj = [input_slot_dims[s] for s in input_slots] if slot_grouped else None
             projection_layer = RandomProjection(
                 input_dim=this_input_dim,
                 output_dim=proj_out_dim,
                 activation=proj_act,
+                slot_dims=slot_dims_for_proj,
                 **proj_act_kw,
             )
 

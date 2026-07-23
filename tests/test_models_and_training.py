@@ -164,6 +164,28 @@ class TestRandomProjection:
         # Each row has at most 10 non-zero values
         assert int((out != 0).float().sum(dim=-1).max().item()) <= 10
 
+    def test_slot_grouped_output_shape(self):
+        proj = RandomProjection(input_dim=32, output_dim=64, slot_dims=[16, 16])
+        x = torch.randn(5, 32)
+        assert proj(x).shape == (5, 64)
+
+    def test_slot_grouped_weights_are_frozen(self):
+        proj = RandomProjection(input_dim=32, output_dim=64, slot_dims=[16, 16])
+        assert proj.slot_linears is not None
+        assert all(not layer.weight.requires_grad for layer in proj.slot_linears)
+
+    def test_slot_grouped_output_split_proportional(self):
+        proj = RandomProjection(input_dim=48, output_dim=18, slot_dims=[16, 32])
+        assert proj.slot_output_dims == [6, 12]
+
+    def test_slot_grouped_invalid_dims_raise(self):
+        with pytest.raises(ValueError, match="sum"):
+            RandomProjection(input_dim=32, output_dim=16, slot_dims=[8, 8])
+
+    def test_slot_grouped_requires_output_at_least_num_slots(self):
+        with pytest.raises(ValueError, match="number of slots"):
+            RandomProjection(input_dim=32, output_dim=1, slot_dims=[16, 16])
+
 
 # ===========================================================================
 # 3. AttentionLayer
@@ -279,6 +301,24 @@ class TestNetworkForward:
             if net.projection is not None:
                 assert id(net.projection.linear.weight) not in net_params
 
+    def test_network_params_excludes_slot_grouped_projection(self, collection):
+        model = parse_model_spec(
+            [{
+                "name": "net",
+                "input": ["Face1", "Object"],
+                "output": ["Face1"],
+                "fixed_projection": True,
+                "fixed_projection_slot_grouping": True,
+                "fixed_projection_hidden_size": 64,
+            }],
+            collection,
+        )
+        net_params = set(id(p) for p in model.network_params())
+        for net in model.networks:
+            if net.projection is not None and net.projection.slot_linears is not None:
+                for layer in net.projection.slot_linears:
+                    assert id(layer.weight) not in net_params
+
     def test_attention_params_non_empty(self, collection):
         model = parse_model_spec(
             [{"name": "net", "input": ["Face1"], "output": ["Face1"],
@@ -311,6 +351,25 @@ class TestNetworkForward:
             }],
             collection,
         )
+        x = torch.randn(N_ROWS, 2 * DIM)
+        pred = model(x)
+        assert pred.shape[0] == N_ROWS
+
+    def test_model_with_fixed_projection_slot_grouped(self, collection):
+        model = parse_model_spec(
+            [{
+                "name": "net",
+                "input": ["Face1", "Object"],
+                "output": ["Face1"],
+                "fixed_projection": True,
+                "fixed_projection_slot_grouping": True,
+                "fixed_projection_hidden_size": 65,
+            }],
+            collection,
+        )
+        net = model.networks[0]
+        assert net.projection is not None
+        assert net.projection.slot_output_dims == [33, 32]
         x = torch.randn(N_ROWS, 2 * DIM)
         pred = model(x)
         assert pred.shape[0] == N_ROWS

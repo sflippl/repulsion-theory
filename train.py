@@ -83,6 +83,26 @@ def main(cfg: DictConfig) -> None:
     item_set = gen.generate(rng)
     log.info("Generated item set.")
 
+    # ── 1b. Save ground-truth angles for circular items (once per run) ────
+    import json as _json
+    _angles_records = [
+        {
+            "item_type": it.item_type,
+            "subgroup":  it.subgroup,
+            "group_id":  it.group_id,
+            "item_id":   it.item_id,
+            "angle":     it.angle,
+        }
+        for it in item_set
+        if it.angle is not None
+    ]
+    if _angles_records:
+        _angles_path = os.path.join(output_dir, "ground_truth_angles.json")
+        with open(_angles_path, "w") as _f:
+            _json.dump(_angles_records, _f, indent=2)
+        log.info("Saved ground-truth angles for %d circular items → %s",
+                 len(_angles_records), _angles_path)
+
     # ── 2. Dataset ────────────────────────────────────────────────────────
     log.info("Building datasets …")
     dataset_cfg: dict = _container(cfg.dataset)

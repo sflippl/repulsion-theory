@@ -222,8 +222,17 @@ def exact_from_corr_matrix(
 def generate_circular_items(
     item_spec: ItemSpec,
     rng: np.random.Generator,
-) -> np.ndarray:
-    """Generate stimulus vectors using a circular Epanechnikov encoding."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Generate stimulus vectors using a circular Epanechnikov encoding.
+
+    Returns
+    -------
+    vectors : ndarray, shape (N, dim)
+        L2-normalised stimulus vectors in generation order.
+    angles : ndarray, shape (N,)
+        Ground-truth item angle in degrees (0 ≤ angle < 360) for each row,
+        in the same order as *vectors*.
+    """
 
     assert item_spec.stimulus_type == "circular"
 
@@ -240,6 +249,7 @@ def generate_circular_items(
 
     N = sum(sg.n_groups * sg.n_items for sg in item_spec.subgroups)
     vectors = np.zeros((N, item_spec.dim), dtype=np.float64)
+    angles = np.zeros(N, dtype=np.float64)
 
     row = 0
     for sg_idx, sg in enumerate(item_spec.subgroups):
@@ -269,6 +279,7 @@ def generate_circular_items(
                     vec /= norm
 
                 vectors[row] = vec
+                angles[row] = item_angle
                 row += 1
 
-    return vectors
+    return vectors, angles

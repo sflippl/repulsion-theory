@@ -286,6 +286,23 @@ class TestExtract:
         out = net.extract(x, None, "post_projection")
         assert out.shape == (N_ROWS, 32)
 
+    def test_extract_post_projection_slot_grouped_shape(self, collection):
+        model = parse_model_spec(
+            [{
+                "name": "n",
+                "input": ["Face1", "Object"],
+                "output": ["Face1"],
+                "fixed_projection": True,
+                "fixed_projection_slot_grouping": True,
+                "fixed_projection_hidden_size": 33,
+            }],
+            collection,
+        )
+        net = model.networks[0]
+        x = torch.randn(N_ROWS, 2 * DIM)
+        out = net.extract(x, None, "post_projection")
+        assert out.shape == (N_ROWS, 33)
+
 
 # ===========================================================================
 # 4. Evaluator — representation

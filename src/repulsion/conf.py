@@ -98,6 +98,7 @@ class NetworkConf:
     attention_layer_gating: float = 1.0
     # Fixed random projection
     fixed_projection: bool = False
+    fixed_projection_slot_grouping: bool = False
     fixed_projection_hidden_size: int = 1000
     fixed_projection_activation: str = "identity"
     fixed_projection_kwta_frac: float = 0.1

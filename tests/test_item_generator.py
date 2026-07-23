@@ -806,3 +806,37 @@ class TestCircularGeneration:
         s = gen.generate(np.random.default_rng(0))
         vectors = s.vectors("x")
         assert np.all(vectors == 0.0)
+
+    def test_circular_items_have_angle(self, item_set):
+        """Every circular item carries a non-None angle in degrees [0, 360)."""
+        for it in item_set.by_type("orient"):
+            assert it.angle is not None
+            assert 0.0 <= it.angle < 360.0
+
+    def test_non_circular_items_have_no_angle(self):
+        gen = ItemGenerator(
+            [{"name": "face", "corr": 0.5, "n_groups": 3, "n_items": 2}],
+            default_dim=32,
+        )
+        item_set = gen.generate(np.random.default_rng(0))
+        for it in item_set:
+            assert it.angle is None
+
+    def test_pairmate_angles_differ_by_distance(self, item_set):
+        """Within each group, pairmate angles differ by the subgroup distance (mod 360)."""
+        specs = parse_items([_CIRCULAR_SPEC])
+        sg_distances = {sg.subgroup_name: sg.distance for sg in specs[0].subgroups}
+        for sg_name, expected_dist in sg_distances.items():
+            for g_id in range(1, 5):
+                pair = item_set.by_group("orient", sg_name, g_id)
+                assert len(pair) == 2
+                a1, a2 = pair[0].angle, pair[1].angle
+                diff = (a2 - a1) % 360.0
+                assert abs(diff - expected_dist) < 1e-8 or abs(diff - (360.0 - expected_dist)) < 1e-8
+
+    def test_angles_reproducible(self):
+        gen = ItemGenerator([_CIRCULAR_SPEC])
+        s1 = gen.generate(np.random.default_rng(7))
+        s2 = gen.generate(np.random.default_rng(7))
+        for it1, it2 in zip(s1.by_type("orient"), s2.by_type("orient")):
+            assert it1.angle == it2.angle

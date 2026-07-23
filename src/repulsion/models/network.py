@@ -114,7 +114,7 @@ class SingleNetwork(nn.Module):
 
         this_input_dim = sum(all_input_slot_dims[s] for s in input_slot_names)
         mlp_input_dim = (
-            projection_layer.linear.out_features
+            projection_layer.output_dim
             if projection_layer is not None
             else this_input_dim
         )

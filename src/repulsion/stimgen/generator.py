@@ -64,6 +64,7 @@ class Item:
     item_id: int     # 1-indexed
     magnitude: float
     dim: int
+    angle: float | None = None  # ground-truth angle in degrees; set for circular items only
 
     def __repr__(self) -> str:  # noqa: D401
         return (
@@ -239,7 +240,7 @@ class ItemGenerator:
 
         for item_spec in self.item_specs:
             if item_spec.stimulus_type == "circular":
-                raw_vectors = generate_circular_items(item_spec, rng)
+                raw_vectors, raw_angles = generate_circular_items(item_spec, rng)
             elif self.generation_mode == "sampled":
                 C = build_item_corr_matrix(item_spec)
                 raw_vectors = sample_from_corr_matrix(C, item_spec.dim, rng, self.psd_eps)
@@ -248,6 +249,7 @@ class ItemGenerator:
                 raw_vectors = exact_from_corr_matrix(C, item_spec.dim, self.psd_eps)
 
             # Assemble Item objects in the same row order as the matrix
+            is_circular = item_spec.stimulus_type == "circular"
             row = 0
             for sg in item_spec.subgroups:
                 for g_idx in range(sg.n_groups):
@@ -263,6 +265,7 @@ class ItemGenerator:
                                 item_id=i_idx + 1,
                                 magnitude=sg.magnitude,
                                 dim=sg.dim,
+                                angle=float(raw_angles[row]) if is_circular else None,
                             )
                         )
                         row += 1
