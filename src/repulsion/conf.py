@@ -43,6 +43,7 @@ class ItemsConf:
     """
     items: List[Any] = MISSING
     generation_mode: str = "sampled"
+    save_ground_truth: bool = False
 
 
 # ---------------------------------------------------------------------------

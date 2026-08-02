@@ -83,8 +83,11 @@ def main(cfg: DictConfig) -> None:
     item_set = gen.generate(rng)
     log.info("Generated item set.")
 
-    # ── 1b. Save ground-truth angles for circular items (once per run) ────
+    # ── 1b. Save ground-truth for all item types (once per run) ──────────
     import json as _json
+    _save_gt: bool = items_cfg.get("save_ground_truth", True)
+
+    # Circular items → angles JSON (existing behaviour)
     _angles_records = [
         {
             "item_type": it.item_type,
@@ -96,12 +99,41 @@ def main(cfg: DictConfig) -> None:
         for it in item_set
         if it.angle is not None
     ]
-    if _angles_records:
+    if _angles_records and _save_gt:
         _angles_path = os.path.join(output_dir, "ground_truth_angles.json")
         with open(_angles_path, "w") as _f:
             _json.dump(_angles_records, _f, indent=2)
         log.info("Saved ground-truth angles for %d circular items → %s",
                  len(_angles_records), _angles_path)
+
+    # Non-circular items → per-type .npy vectors + shared rows JSON
+    _circular_types = {it.item_type for it in item_set if it.angle is not None}
+    _vector_types = sorted(
+        {it.item_type for it in item_set} - _circular_types
+    )
+    if _vector_types and _save_gt:
+        _rows_records = [
+            {
+                "name":      it.name,
+                "item_type": it.item_type,
+                "subgroup":  it.subgroup,
+                "group_id":  it.group_id,
+                "item_id":   it.item_id,
+            }
+            for it in item_set
+            if it.item_type in _vector_types
+        ]
+        _rows_path = os.path.join(output_dir, "ground_truth_rows.json")
+        with open(_rows_path, "w") as _f:
+            _json.dump(_rows_records, _f, indent=2)
+        for _itype in _vector_types:
+            _vecs = item_set.vectors(_itype)
+            _vec_path = os.path.join(output_dir, f"ground_truth_vectors_{_itype}.npy")
+            np.save(_vec_path, _vecs)
+        log.info(
+            "Saved ground-truth vectors for item types %s → %s",
+            _vector_types, output_dir,
+        )
 
     # ── 2. Dataset ────────────────────────────────────────────────────────
     log.info("Building datasets …")
