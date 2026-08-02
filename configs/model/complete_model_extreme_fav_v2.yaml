@@ -14,8 +14,8 @@ networks:
     init_scale: 0.2
     attention_layer: true
     fixed_projection: true
-    fixed_projection_hidden_size: 1000
+    fixed_projection_hidden_size: 10000
     fixed_projection_slot_grouping: true
     fixed_projection_activation: kwta
-    fixed_projection_kwta_frac: 0.03
-    attention_layer_gating: 5.0
+    fixed_projection_kwta_frac: 0.01
+    attention_layer_gating: 10.0

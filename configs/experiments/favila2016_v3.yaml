@@ -6,7 +6,7 @@ defaults:
   - override /evaluation: favila2016
 
 experiment_hparams:
-  scene_corr_between: 0.
+  scene_corr_between: 0.1
   scene_corr_within: 0.5
   face_corr: 0.2
   

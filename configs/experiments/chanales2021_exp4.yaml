@@ -8,5 +8,5 @@ defaults:
 experiment_hparams:
   bump_width: 24.0
   prediction_test_weight: 1.0
-  association_weight: 1.0
+  association_weight: 3.0
   face_corr: 0.05

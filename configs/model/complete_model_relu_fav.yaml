@@ -3,14 +3,14 @@
 networks:
   - name: net1
     hidden_sizes: [128]
-    activation: identity
+    activation: relu
     init_scale: 0.2
     attention_layer: true
     fixed_projection: false
 
   - name: net2
     hidden_sizes: [128]
-    activation: identity
+    activation: relu
     init_scale: 0.2
     attention_layer: true
     fixed_projection: true
@@ -18,4 +18,4 @@ networks:
     fixed_projection_slot_grouping: true
     fixed_projection_activation: kwta
     fixed_projection_kwta_frac: 0.03
-    attention_layer_gating: 5.0
+    attention_layer_gating: 10.0

@@ -1,8 +1,8 @@
-MODELS=("linear_network" "dual_stream_linear" "relu_network")
-EXPERIMENTS=("chanales2021_exp1" "chanales2021_exp3" "chanales2021_exp4")
+MODELS=("complete_model_fav") #("linear_network" "dual_stream_linear" "relu_network" "attention" "complete_model" "complete_model_relu", "complete_model_extreme", "dual_stream_linear_severe")
+EXPERIMENTS=("chanales2021_exp1_v3" "chanales2021_exp3_v3" "chanales2021_exp4_v3")
 
 for model in "${MODELS[@]}"; do
     for experiment in "${EXPERIMENTS[@]}"; do
-        python train.py model="${model}" +experiments="${experiment}" seed=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19 hydra.sweep.dir="data/${experiment}/${model}/${seed}" hydra/launcher=cpu --multirun
+        python train.py model="${model}" +experiments="${experiment}" seed=$(seq -s, 0 39) hydra.sweep.dir="data/${experiment}/${model}/${seed}" hydra/launcher=cpu --multirun
     done
 done

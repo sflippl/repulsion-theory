@@ -3,21 +3,19 @@ defaults:
   - /experiment_hparams: chanales2021
 
 items:
-  save_ground_truth: true
   items:
     - name: color
-      stimulus_type: circular
       n_groups: 6
       n_items: 2
-      bump_width: ${experiment_hparams.bump_width}
-      dim: 324 # 64 dimensions per group
+      corr_between: 0.
+      dim: 128 # 64 dimensions per group
       subgroups:
         - name: high_sim
-          distance: 24.0
+          corr_within: 0.9
         - name: med_sim
-          distance: 48.0
+          corr_within: 0.2
         - name: low_sim
-          distance: 72.0
+          corr_within: 0.1
     - name: face
       corr_between: ${experiment_hparams.face_corr}
       n_groups: 6
@@ -28,7 +26,7 @@ items:
         - name: med_sim
         - name: low_sim
     - name: object
-      corr_between: 0.05
+      corr_between: 0.
       n_groups: 6
       n_items: 2
       dim: 128
@@ -36,3 +34,7 @@ items:
         - name: high_sim
         - name: med_sim
         - name: low_sim
+
+hydra:
+  sweep:
+    dir: chanales2021_exp1/${model}

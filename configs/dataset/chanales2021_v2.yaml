@@ -3,20 +3,25 @@
 slots:
   input:
     color: color
-    face: face
+    face_shared: face_shared
+    face_unique: face_unique
     object: object
   output:
     color: color
-    face: face
+    face_shared: face_shared
+    face_unique: face_unique
     object: object
-    face2: face
+    face2_shared: face_shared
+    face2_unique: face_unique
 tasks:
   - name: autoencoding
     input:
       color:
         magnitude: 1.0
         noise_std: 0.
-      face:
+      face_shared:
+        magnitude: 1.0
+      face_unique:
         magnitude: 1.0
       object:
         magnitude: 1.0
@@ -24,7 +29,9 @@ tasks:
       color:
         magnitude: 1.0
         noise_std: 0.
-      face:
+      face_shared:
+        magnitude: 1.0
+      face_unique:
         magnitude: 1.0
       object:
         magnitude: 1.0
@@ -36,19 +43,28 @@ tasks:
       object:
         magnitude: 1.0
     output:
-      face2:
+      face2_shared:
+        magnitude: 1.0
+      face2_unique:
         magnitude: 1.0
   - name: association_group
     input:
-      face:
+      face_shared:
+        magnitude: 1.0
+      face_unique:
         magnitude: 1.0
     output:
-      face2:
+      face2_shared:
+        magnitude: 1.0
+        manipulation: group
+      face2_unique:
         magnitude: 1.0
         manipulation: group
   - name: prediction_evaluation
     input:
-      face:
+      face_shared:
+        magnitude: 1.0
+      face_unique:
         magnitude: 1.0
       object:
         magnitude: 1.0
@@ -57,12 +73,16 @@ tasks:
         magnitude: 1.0
   - name: prediction_test
     input:
-      face:
+      face_shared:
+        magnitude: 1.0
+      face_unique:
         magnitude: 1.0
       object:
         magnitude: 1.0
     output:
-      face:
+      face_shared:
+        magnitude: 1.0
+      face_unique:
         magnitude: 1.0
       object:
         magnitude: 1.0

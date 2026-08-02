@@ -1,0 +1,13 @@
+# @package _global_.training
+#
+# SGD with momentum.
+
+optimizer: sgd
+lr: 0.02
+momentum: 0.9
+separate_attention: true
+attention_optimizer: sgd
+attention_lr: 0.02
+attention_momentum: 0.9
+network_steps: 1
+attention_steps: 10

@@ -28,7 +28,7 @@ items:
         - name: high_sim
         - name: low_sim
     - name: object
-      corr_between: 0.
+      corr_between: 0.05
       n_groups: 6
       n_items: 2
       dim: 128
