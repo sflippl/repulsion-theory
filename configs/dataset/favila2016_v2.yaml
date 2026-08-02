@@ -1,0 +1,47 @@
+# @package _global_.dataset
+
+slots:
+  input:
+    face: face
+    scene_shared: scene_shared
+    scene_unique: scene_unique
+  output:
+    face: face
+    scene_shared: scene_shared
+    scene_unique: scene_unique
+tasks:
+  - name: autoencoding
+    input:
+      face:
+        magnitude: 1.0
+      scene_shared:
+        magnitude: 1.0
+      scene_unique:
+        magnitude: 1.0
+    output:
+      face:
+        magnitude: 1.0
+      scene_shared:
+        magnitude: 1.0
+      scene_unique:
+        magnitude: 1.0
+  - name: face_prediction
+    input:
+      scene_shared:
+        magnitude: 1.0
+      scene_unique:
+        magnitude: 1.0
+    output:
+      face:
+        magnitude: 1.0
+  - name: scene_input
+    input:
+      scene_shared:
+        magnitude: 1.0
+      scene_unique:
+        magnitude: 1.0
+    output:
+      scene_shared:
+        magnitude: 1.0
+      scene_unique:
+        magnitude: 1.0

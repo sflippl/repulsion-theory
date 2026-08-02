@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - override /dataset: wanjia2021
+  - override /schedule: wanjia2021_nopred
+  - override /items: wanjia2021_v2
+  - override /evaluation: favila2016
+
+experiment_hparams:
+  scene_corr_between: 0.
+  scene_high_corr: 0.2
+  scene_low_corr: 0.1

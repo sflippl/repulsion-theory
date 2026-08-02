@@ -2,11 +2,10 @@
 defaults:
   - override /dataset: chanales2021
   - override /schedule: chanales2021_exp1
-  - override /items: chanales2021_exp1
+  - override /items: chanales2021_exp3_v3
   - override /evaluation: chanales2021
 
 experiment_hparams:
-  bump_width: 24.0
   prediction_test_weight: 1.0
-  association_weight: 3.0
+  association_weight: 1.0
   face_corr: 0.05

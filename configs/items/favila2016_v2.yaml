@@ -1,0 +1,38 @@
+# @package _global_
+defaults:
+  - /experiment_hparams: favila2016_v2
+
+items:
+  items:
+    - name: scene_shared
+      corr_between: ${experiment_hparams.scene_corr_between}
+      corr_within: 1.0
+      n_groups: 6
+      n_items: 2
+      dim: ${experiment_hparams.dims_shared}
+      subgroups:
+        - name: no_face
+        - name: different_face
+        - name: same_face
+    - name: scene_unique
+      corr_between: ${experiment_hparams.scene_corr_between}
+      corr_within: ${experiment_hparams.scene_corr_between}
+      n_groups: 6
+      n_items: 2
+      dim: ${experiment_hparams.dims_unique}
+      subgroups:
+        - name: no_face
+        - name: different_face
+        - name: same_face
+    - name: face
+      corr_between: ${experiment_hparams.face_corr}
+      corr_within: ${experiment_hparams.face_corr}
+      n_groups: 6
+      n_items: 2
+      dim: 128
+      subgroups:
+        - name: no_face
+          magnitude: 0.
+        - name: different_face
+        - name: same_face
+          corr_within: 1.

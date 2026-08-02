@@ -1,0 +1,25 @@
+# @package _global_
+defaults:
+  - /experiment_hparams: wanjia2021
+
+items:
+  items:
+    - name: scene
+      corr_between: ${experiment_hparams.scene_corr_between}
+      n_groups: 6
+      n_items: 2
+      dim: 128
+      subgroups:
+        - name: scene_high
+          corr_within: ${experiment_hparams.scene_high_corr}
+        - name: scene_low
+          corr_within: ${experiment_hparams.scene_low_corr}
+    - name: object
+      corr_between: 0.
+      corr_within: 1.
+      n_groups: 6
+      n_items: 2
+      dim: 128
+      subgroups:
+        - name: scene_high
+        - name: scene_low

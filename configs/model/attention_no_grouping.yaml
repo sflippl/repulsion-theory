@@ -11,7 +11,7 @@ networks:
     activation: identity
     init_scale: 0.2
     attention_layer: true
-    attention_layer_slot_grouping: true   # one logit per slot (not per dim)
+    attention_layer_slot_grouping: false   # one logit per slot (not per dim)
     attention_layer_sample_grouping: true # shared across all samples
-    attention_layer_gating: 1.0
+    attention_layer_gating: 3.0
     fixed_projection: false

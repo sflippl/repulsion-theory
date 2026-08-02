@@ -182,6 +182,14 @@ class Favila2016HParams(ExperimentHParams):
     prediction_weight: float = 1.0
 
 @dataclass
+class Wanjia2021HParams(ExperimentHParams):
+    scene_corr_between: float = 0.0
+    scene_high_corr: float = 0.7
+    scene_low_corr: float = 0.3
+    object_high_corr: float = 0.7
+    object_low_corr: float = 0.3
+
+@dataclass
 class Favila2016V2HParams(ExperimentHParams):
     scene_corr_between: float = 0.0
     dims_shared: int = 64
@@ -257,6 +265,13 @@ def _register() -> None:
         name="favila2016_v2",
         node=Favila2016V2HParams,
     )
+    
+    cs.store(
+        group="experiment_hparams",
+        name="wanjia2021",
+        node=Wanjia2021HParams,
+    )
+    
     cs.store(
         group="experiment_hparams",
         name="chanales2017_sim1",

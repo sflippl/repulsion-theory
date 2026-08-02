@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - override /dataset: favila2016_v2
+  - override /schedule: favila2016_nopred
+  - override /items: favila2016_v2
+  - override /evaluation: favila2016
+
+experiment_hparams:
+  scene_corr_between: 0.0
+  dims_shared: 64
+  dims_unique: 64
+  face_corr: 0.2
