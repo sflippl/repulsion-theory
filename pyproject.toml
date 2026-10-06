@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "repulsion"
 version = "0.1.0"
 requires-python = ">=3.9"
-dependencies = ["numpy>=1.24", "hydra-core>=1.3"]
+dependencies = ["numpy>=1.24", "hydra-core>=1.3", "scipy>=1.10", "pandas>=2.0", "torch"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "matplotlib", "seaborn", "jupyter"]

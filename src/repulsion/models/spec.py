@@ -63,6 +63,91 @@ def _build_shared_attention(
     )
 
 
+def build_single_network(
+    spec: dict,
+    input_slots: list[str],
+    output_slots: list[str],
+    input_slot_offsets: dict[str, int],
+    input_slot_dims: dict[str, int],
+    output_pred_offsets: dict[str, int],
+    output_pred_dims: dict[str, int],
+    global_prediction_dim: int,
+    row_index_to_id: dict[tuple, int] | None = None,
+) -> SingleNetwork:
+    """Build one :class:`SingleNetwork` stream from a spec dict and a slot layout.
+
+    Slot routing must already be resolved (see :func:`parse_model_spec`).
+    *row_index_to_id* is only needed when the spec requests per-sample attention.
+    """
+    hidden_sizes: list[int] = spec.get("hidden_sizes", [256])
+    activation: str = spec.get("activation", "identity")
+    activation_kwargs: dict = {}
+    if activation == "leaky_relu":
+        activation_kwargs["negative_slope"] = spec.get("activation_leaky_relu_slope", 0.01)
+    elif activation == "kwta":
+        activation_kwargs["frac"] = spec.get("activation_kwta_frac", 0.1)
+    init_scale: float = float(spec.get("init_scale", 0.01))
+
+    # -- Attention layer --
+    attention_layer: AttentionLayer | None = None
+    if spec.get("attention_layer", False):
+        this_input_dim = sum(input_slot_dims[s] for s in input_slots)
+        slot_grouped: bool = spec.get("attention_layer_slot_grouping", False)
+        # attention_layer_sample_grouping=True means SHARED across samples (default)
+        per_sample: bool = not spec.get("attention_layer_sample_grouping", True)
+        gating: float = float(spec.get("attention_layer_gating", 1.0))
+
+        slot_dims_for_attn = (
+            [input_slot_dims[s] for s in input_slots] if slot_grouped else None
+        )
+        attention_layer = AttentionLayer(
+            input_dim=this_input_dim,
+            slot_dims=slot_dims_for_attn,
+            gating=gating,
+            per_sample=per_sample,
+            row_index_to_id=row_index_to_id if per_sample else None,
+        )
+
+    # -- Fixed projection --
+    projection_layer: RandomProjection | None = None
+    if spec.get("fixed_projection", False):
+        this_input_dim = sum(input_slot_dims[s] for s in input_slots)
+        slot_grouped: bool = spec.get("fixed_projection_slot_grouping", False)
+        proj_out_dim: int = int(spec.get("fixed_projection_hidden_size", 1000))
+        proj_act: str = spec.get("fixed_projection_activation", "identity")
+        proj_act_kw: dict = {}
+        if proj_act == "kwta":
+            proj_act_kw["frac"] = float(spec.get("fixed_projection_kwta_frac", 0.1))
+        elif proj_act == "leaky_relu":
+            proj_act_kw["negative_slope"] = float(
+                spec.get("fixed_projection_leaky_relu_slope", 0.01)
+            )
+        slot_dims_for_proj = [input_slot_dims[s] for s in input_slots] if slot_grouped else None
+        projection_layer = RandomProjection(
+            input_dim=this_input_dim,
+            output_dim=proj_out_dim,
+            activation=proj_act,
+            slot_dims=slot_dims_for_proj,
+            **proj_act_kw,
+        )
+
+    return SingleNetwork(
+        input_slot_names=input_slots,
+        output_slot_names=output_slots,
+        all_input_slot_offsets=input_slot_offsets,
+        all_input_slot_dims=input_slot_dims,
+        all_output_pred_offsets=output_pred_offsets,
+        all_output_pred_dims=output_pred_dims,
+        global_prediction_dim=global_prediction_dim,
+        hidden_sizes=hidden_sizes,
+        activation=activation,
+        activation_kwargs=activation_kwargs,
+        init_scale=init_scale,
+        attention_layer=attention_layer,
+        projection_layer=projection_layer,
+    )
+
+
 def parse_model_spec(
     specs: list[dict],
     collection: DatasetCollection,
@@ -172,77 +257,20 @@ def parse_model_spec(
                     f"Available output slots: {all_output_labels}."
                 )
 
-        hidden_sizes: list[int] = spec.get("hidden_sizes", [256])
-        activation: str = spec.get("activation", "identity")
-        activation_kwargs: dict = {}
-        if activation == "leaky_relu":
-            activation_kwargs["negative_slope"] = spec.get("activation_leaky_relu_slope", 0.01)
-        elif activation == "kwta":
-            activation_kwargs["frac"] = spec.get("activation_kwta_frac", 0.1)
-        init_scale: float = float(spec.get("init_scale", 0.01))
-
-        # -- Attention layer --
-        attention_layer: AttentionLayer | None = None
-        if spec.get("attention_layer", False):
-            this_input_dim = sum(input_slot_dims[s] for s in input_slots)
-            slot_grouped: bool = spec.get("attention_layer_slot_grouping", False)
-            # attention_layer_sample_grouping=True means SHARED across samples (default)
-            per_sample: bool = not spec.get("attention_layer_sample_grouping", True)
-            gating: float = float(spec.get("attention_layer_gating", 1.0))
-
-            slot_dims_for_attn = (
-                [input_slot_dims[s] for s in input_slots] if slot_grouped else None
-            )
-            attention_layer = AttentionLayer(
-                input_dim=this_input_dim,
-                slot_dims=slot_dims_for_attn,
-                gating=gating,
-                per_sample=per_sample,
-                row_index_to_id=row_index_to_id if per_sample else None,
-            )
-            if per_sample:
-                has_per_sample_attn = True
-
-        # -- Fixed projection --
-        projection_layer: RandomProjection | None = None
-        if spec.get("fixed_projection", False):
-            this_input_dim = sum(input_slot_dims[s] for s in input_slots)
-            slot_grouped: bool = spec.get("fixed_projection_slot_grouping", False)
-            proj_out_dim: int = int(spec.get("fixed_projection_hidden_size", 1000))
-            proj_act: str = spec.get("fixed_projection_activation", "identity")
-            proj_act_kw: dict = {}
-            if proj_act == "kwta":
-                proj_act_kw["frac"] = float(spec.get("fixed_projection_kwta_frac", 0.1))
-            elif proj_act == "leaky_relu":
-                proj_act_kw["negative_slope"] = float(
-                    spec.get("fixed_projection_leaky_relu_slope", 0.01)
-                )
-            slot_dims_for_proj = [input_slot_dims[s] for s in input_slots] if slot_grouped else None
-            projection_layer = RandomProjection(
-                input_dim=this_input_dim,
-                output_dim=proj_out_dim,
-                activation=proj_act,
-                slot_dims=slot_dims_for_proj,
-                **proj_act_kw,
-            )
-
-        networks.append(
-            SingleNetwork(
-                input_slot_names=input_slots,
-                output_slot_names=output_slots,
-                all_input_slot_offsets=input_slot_offsets,
-                all_input_slot_dims=input_slot_dims,
-                all_output_pred_offsets=output_pred_offsets,
-                all_output_pred_dims=output_pred_dims,
-                global_prediction_dim=global_prediction_dim,
-                hidden_sizes=hidden_sizes,
-                activation=activation,
-                activation_kwargs=activation_kwargs,
-                init_scale=init_scale,
-                attention_layer=attention_layer,
-                projection_layer=projection_layer,
-            )
+        net = build_single_network(
+            spec,
+            input_slots,
+            output_slots,
+            input_slot_offsets,
+            input_slot_dims,
+            output_pred_offsets,
+            output_pred_dims,
+            global_prediction_dim,
+            row_index_to_id,
         )
+        if net.attention is not None and net.attention.per_sample:
+            has_per_sample_attn = True
+        networks.append(net)
 
     return MultiNetwork(
         networks=networks,

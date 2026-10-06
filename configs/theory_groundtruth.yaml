@@ -1,0 +1,31 @@
+# @package _global_
+# Ground-truth gradient-descent check for one (case, architecture, grid-point)
+# combination. Meant to be driven via --multirun with comma-separated
+# overrides (see scripts/theory_groundtruth.sh), analogous to train.py.
+case: case1
+architecture: A
+which_stream: 0
+
+rho_sA1: 0.5
+rho_sA2: 0.5
+rho_sB1: 0.0
+rho_sB2: 0.0
+phi_in: 1.0
+phi_out: 0.0
+gamma1: 1e-6
+gamma2: 1e-6
+eta1: 1.0
+eta2: 1.0
+alpha: null
+
+G: 2
+M: 2
+n: 8
+lr: 0.02
+n_steps: 20000
+init: exact
+random_scale: 0.01
+seed: 0
+
+# null -> use Hydra's default outputs/YYYY-MM-DD/HH-MM-SS/ run directory.
+output_dir: null
