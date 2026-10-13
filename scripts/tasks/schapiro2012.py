@@ -12,7 +12,12 @@ Every training example is a pair of consecutive items ``(s_t, s_{t+1})``,
 presented as ``sqrt(phi_in) s_t + sqrt(1 - phi_in) s_{t+1}``; the target is the
 same superposition with ``phi_out`` (``null`` → ``1 - phi_in``).  ``phi_in = phi_out = 0.5`` is
 autoencoding of the transition (as in the notebook, up to a factor sqrt(2));
-``phi_in = 1, phi_out = 0`` is next-item prediction.
+``phi_in = 1, phi_out = 0`` is next-item prediction.  With ``separate_inputs``
+(default) the two weighted items arrive in separate input slots and each stream
+sums them after its fixed projection: the dense stream sees ``s_t' + s_{t+1}'``
+(identical to the superposition), the kWTA stream
+``kwta(P s_t') + kwta(P s_{t+1}')``.  Items are probed alone (in the first slot,
+the second zeroed, when ``separate_inputs``).
 
 Outputs (``results.npz`` in the run directory)
 ----------------------------------------------
@@ -32,6 +37,8 @@ Usage
 -----
     python scripts/tasks/schapiro2012.py
     python scripts/tasks/schapiro2012.py stimuli.phi_in=1.0 stimuli.phi_out=0.0
+    # kWTA applied to the superposition instead of to each item
+    python scripts/tasks/schapiro2012.py stimuli.separate_inputs=false
     # notebook-style minibatch SGD
     python scripts/tasks/schapiro2012.py training.batch_size=32 training.momentum=0 training.lr=10 training.epochs=100
 """
@@ -61,6 +68,7 @@ from repulsion.tasks import (
     seed_everything,
     stream_info,
     superpose,
+    superpose_slots,
     train,
 )
 
@@ -82,6 +90,7 @@ class StimuliConfig:
     phi_out: Optional[float] = 0.5  # salience of the current item in the target; null → 1 - phi_in
     magnitude_in: float = 1.0
     magnitude_out: float = 1.0
+    separate_inputs: bool = True   # current/next item in separate slots, summed after each stream's projection
 
 
 def _default_networks() -> list[dict]:
@@ -151,14 +160,22 @@ def resolve_phi_out(cfg: StimuliConfig) -> float:
 
 
 def build_data(cfg: StimuliConfig, rng: np.random.Generator):
-    """Return ``(X, Y, probe, items, sequence)``; ``probe`` is ``A_0, B_0, A_1, B_1, ...``."""
+    """Return ``(X, Y, probe, items, sequence)``; ``probe`` is ``A_0, B_0, A_1, B_1, ...``.
+
+    With ``separate_inputs``, ``X`` and ``probe`` are ``[s_t slot, s_{t+1} slot]``
+    of width ``2 * dim``; probed items sit in the first slot, the second zeroed.
+    """
     pairs = correlated_pairs_exact(cfg.pair_corrs, dim=cfg.dim, rng=rng, baseline=cfg.between_corr)
     items = np.stack([v for pair in pairs for v in pair])
     sequence = generate_sequence(cfg, rng)
     first, second = items[sequence[:-1]], items[sequence[1:]]
-    X = superpose(first, second, cfg.phi_in, cfg.magnitude_in)
     Y = superpose(first, second, resolve_phi_out(cfg), cfg.magnitude_out)
-    return X, Y, items, items, sequence
+    if not cfg.separate_inputs:
+        X = superpose(first, second, cfg.phi_in, cfg.magnitude_in)
+        return X, Y, items, items, sequence
+    X = superpose_slots(first, second, cfg.phi_in, cfg.magnitude_in)
+    probe = np.concatenate([items, np.zeros_like(items)], axis=1)
+    return X, Y, probe, items, sequence
 
 
 # ── main ────────────────────────────────────────────────────────────────────
@@ -173,7 +190,7 @@ def main(cfg: SchapiroConfig) -> None:
     log.info("Training set: %d transitions, dim %d.", *X.shape)
 
     networks = OmegaConf.to_container(cfg.model.networks, resolve=True)
-    model = build_model(networks, in_dim=cfg.stimuli.dim)
+    model = build_model(networks, in_dim=cfg.stimuli.dim, n_input_slots=2 if cfg.stimuli.separate_inputs else 1)
     log.info("Model: %d trainable parameters.", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     n_pairs = len(cfg.stimuli.pair_corrs)
