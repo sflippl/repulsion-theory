@@ -32,6 +32,18 @@ def superpose(a: np.ndarray, b: np.ndarray, phi: float, magnitude: float = 1.0) 
     return magnitude * (np.sqrt(phi) * a + np.sqrt(1.0 - phi) * b)
 
 
+def superpose_slots(a: np.ndarray, b: np.ndarray, phi: float, magnitude: float = 1.0) -> np.ndarray:
+    """The two terms of :func:`superpose` side by side, ``[sqrt(phi) a, sqrt(1 - phi) b] * magnitude``.
+
+    For models built with ``n_input_slots=2``, whose streams sum their
+    (projected) slots instead of seeing the superposition directly.
+    """
+    return np.concatenate([
+        superpose(a, np.zeros_like(b), phi, magnitude),
+        superpose(np.zeros_like(a), b, phi, magnitude),
+    ], axis=-1)
+
+
 def correlated_pairs_exact(correlations, dim: int = 128, rng=None, baseline: float = 0.0) -> list[tuple[np.ndarray, np.ndarray]]:
     """Pairs with exactly ``corr(x_i, y_i) = correlations[i]`` and *baseline* between pairs.
 

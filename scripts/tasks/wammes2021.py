@@ -66,6 +66,7 @@ from repulsion.tasks import (
     seed_everything,
     stream_info,
     superpose,
+    superpose_slots,
     train,
 )
 
@@ -149,11 +150,7 @@ def build_data(cfg: StimuliConfig, rng: np.random.Generator):
         probe = np.stack([items_x, items_y], axis=1).reshape(-1, cfg.dim)
         return X, Y, probe, rhos, items_x, items_y
 
-    zeros_x, zeros_y = np.zeros_like(items_x[xi]), np.zeros_like(items_y[yi])
-    X = np.concatenate([
-        superpose(items_x[xi], zeros_y, cfg.phi_in, cfg.magnitude_in),
-        superpose(zeros_x, items_y[yi], cfg.phi_in, cfg.magnitude_in),
-    ], axis=1)
+    X = superpose_slots(items_x[xi], items_y[yi], cfg.phi_in, cfg.magnitude_in)
     zeros = np.zeros_like(items_x)
     probe = np.stack([
         np.concatenate([items_x, zeros], axis=1),
