@@ -105,7 +105,10 @@ def save(fig, out_dir: str, name: str) -> None:
 # ── figures ─────────────────────────────────────────────────────────────────
 
 def plot_loss(data, out_dir: str) -> None:
-    per_epoch = per_epoch_loss(data)
+    spe = data["steps_per_epoch"]
+    loss = data["loss"]
+    n_epochs = loss.shape[1] // spe
+    per_epoch = loss[:, : n_epochs * spe].reshape(loss.shape[0], n_epochs, spe).mean(-1)
     n_epochs = per_epoch.shape[1]
     m, h = mean_ci(per_epoch)
     fig, ax = plt.subplots(figsize=(4.5, 3.2))
@@ -180,8 +183,7 @@ def main() -> None:
     p.add_argument("--logx", action="store_true", help="log-scale epoch axis in the similarity plot")
     args = p.parse_args()
 
-    setup_style()
-    data = load_runs(find_results(args.sweep_dir))
+    data = load_runs(args.sweep_dir)
     out_dir = args.out or os.path.join("figures", "wammes2021", os.path.basename(os.path.normpath(args.sweep_dir)))
     final_epoch = data["eval_steps"][-1] / data["steps_per_epoch"]
     print(f"{data['n_seeds']} seeds, {final_epoch:g} epochs, {data['steps_per_epoch']} steps/epoch")

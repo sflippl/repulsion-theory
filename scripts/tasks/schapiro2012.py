@@ -104,7 +104,7 @@ def _default_networks() -> list[dict]:
             "fixed_projection": True,
             "fixed_projection_hidden_size": 1000,
             "fixed_projection_activation": "kwta",
-            "fixed_projection_kwta_frac": 0.01,
+            "fixed_projection_kwta_frac": 0.003,
         },
     ]
 
