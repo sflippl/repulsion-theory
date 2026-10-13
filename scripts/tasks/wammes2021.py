@@ -91,12 +91,12 @@ class StimuliConfig:
 
 def _default_networks() -> list[dict]:
     return [
-        {"name": "net1", "hidden_sizes": [512], "activation": "identity", "init_scale": 0.01},
+        {"name": "net1", "hidden_sizes": [512], "activation": "identity", "init_scale": 0.2},
         {
             "name": "net2",
             "hidden_sizes": [512],
             "activation": "identity",
-            "init_scale": 0.01,
+            "init_scale": 0.2,
             "fixed_projection": True,
             "fixed_projection_hidden_size": 2000,
             "fixed_projection_activation": "kwta",
