@@ -72,7 +72,7 @@ log = logging.getLogger(__name__)
 class StimuliConfig:
     n_pairs: int = 8
     rho_min: float = 0.0
-    rho_max: float = 1.0
+    rho_max: float = 7/8
     dim: int = 128
     pair_repeats: int = 8
     include_nonpairs: bool = True
@@ -93,7 +93,7 @@ def _default_networks() -> list[dict]:
             "fixed_projection": True,
             "fixed_projection_hidden_size": 2000,
             "fixed_projection_activation": "kwta",
-            "fixed_projection_kwta_frac": 0.005,
+            "fixed_projection_kwta_frac": 0.003,
         },
     ]
 

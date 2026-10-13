@@ -8,8 +8,8 @@
 # Plot afterwards with
 #   python scripts/plot_wammes2021.py data/wammes2021/online
 LAUNCHER=${LAUNCHER:-cpu}
-SEEDS=${SEEDS:-$(seq -s, 0 19)}
+SEEDS=$(seq -s, 0 49)
 NAME=${NAME:-online}
 
-python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=20 "$@" \
+python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=50 training.lr=10.0 training.momentum=0.5 training.batch_size=1 "$@" \
     hydra.sweep.dir=data/wammes2021/${NAME} hydra/launcher=${LAUNCHER} --multirun
