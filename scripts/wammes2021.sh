@@ -8,7 +8,7 @@
 # Plot afterwards with
 #   python scripts/plot_wammes2021.py data/wammes2021/online
 LAUNCHER=${LAUNCHER:-cpu}
-SEEDS=$(seq -s, 0 19)
+SEEDS=${SEEDS:-$(seq -s, 0 19)}
 NAME=${NAME:-online}
 
 python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=20 "$@" \

@@ -46,7 +46,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 import hydra
 import numpy as np
-import torch
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
 
@@ -54,10 +53,12 @@ from repulsion.tasks import (
     TrainConfig,
     build_model,
     correlated_pairs,
-    hidden_reps,
+    make_pair_corr_eval,
+    pair_corr_arrays,
     resolve_output_dir,
     save_results,
     seed_everything,
+    stream_info,
     superpose,
     train,
 )
@@ -140,16 +141,6 @@ def build_data(cfg: StimuliConfig, rng: np.random.Generator):
     return X, Y, probe, rhos, items_x, items_y
 
 
-def make_eval_fn(n_pairs: int, layer: str):
-    def eval_fn(model, probe):
-        out = []
-        for rep in hidden_reps(model, probe, layer):
-            rep = rep.cpu().numpy()
-            out.append(np.corrcoef(rep[::2], rep[1::2])[:n_pairs, n_pairs:])
-        return np.stack(out)  # (S, n, n)
-    return eval_fn
-
-
 # ── main ────────────────────────────────────────────────────────────────────
 
 @hydra.main(config_path="../../configs", config_name="wammes2021", version_base=None)
@@ -168,23 +159,17 @@ def main(cfg: WammesConfig) -> None:
     result = train(
         model, X, Y, train_cfg,
         probe=probe,
-        eval_fn=make_eval_fn(cfg.stimuli.n_pairs, cfg.model.probe_layer),
+        eval_fn=make_pair_corr_eval(cfg.stimuli.n_pairs, cfg.model.probe_layer),
         device=cfg.device,
     )
 
-    corr_xy = np.stack(result.metrics)  # (T, S, n, n)
-    iu = np.triu_indices(cfg.stimuli.n_pairs, k=1)
-    networks = OmegaConf.to_container(cfg.model.networks, resolve=True)
     save_results(
         output_dir,
         eval_steps=result.eval_steps,
-        corr_xy=corr_xy,
-        pair_corr=np.diagonal(corr_xy, axis1=-2, axis2=-1),
-        baseline=corr_xy[..., iu[0], iu[1]],
+        **pair_corr_arrays(result.metrics),
         loss=result.losses,
         steps_per_epoch=len(result.losses) // train_cfg.epochs,
-        stream_names=np.array([net.get("name", f"net{i}") for i, net in enumerate(networks)]),
-        stream_sparse=np.array([bool(net.get("fixed_projection", False)) for net in networks]),
+        **stream_info(OmegaConf.to_container(cfg.model.networks, resolve=True)),
         rhos=rhos,
         items_x=items_x,
         items_y=items_y,
