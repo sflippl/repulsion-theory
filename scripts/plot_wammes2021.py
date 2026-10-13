@@ -91,7 +91,7 @@ def band(ax, x, m, h, color, label=None, **kw):
 
 def streams(data) -> list[tuple[int, str]]:
     """``(stream index, label)`` pairs, dense first."""
-    out = [(s, "Sparse pathway (kWTA)" if sp else "Dense pathway") for s, sp in enumerate(data["stream_sparse"])]
+    out = [(s, "TSP network" if sp else "MSP network") for s, sp in enumerate(data["stream_sparse"])]
     return sorted(out, key=lambda t: data["stream_sparse"][t[0]])
 
 
@@ -154,19 +154,21 @@ def _nearest_eval(data, epoch: float) -> int:
 def plot_change(data, out_dir: str, epochs: list[float]) -> None:
     rhos = data["rhos"]
     idx = [_nearest_eval(data, e) for e in epochs]
-    colors = [RAMP(v) for v in (np.linspace(0, 1, len(epochs)) if len(epochs) > 1 else [1.0])]
+    colors = [RAMP(v) for v in (np.linspace(0, 1, len(epochs)) if len(epochs) > 1 else [1.0])] if len(epochs) > 1 else 'black'
     fig, axes = plt.subplots(1, 2, figsize=(9.5, 3.4), sharey=True, constrained_layout=True)
     for ax, (s, label) in zip(axes, streams(data)):
         pc = data["pair_corr"][:, :, s]           # (seeds, T, n)
         for e, t, c in zip(epochs, idx, colors):
             m, h = mean_ci(pc[:, t] - pc[:, 0])
-            ax.fill_between(rhos, m - h, m + h, color=c, alpha=0.2, lw=0)
-            ax.plot(rhos, m, color=c, marker="o", ms=5, mec="white", mew=1, label=f"Epoch {e:g}")
+            filt = rhos < 1.0
+            ax.fill_between(rhos[filt], (m - h)[filt], (m + h)[filt], color=c, alpha=0.2, lw=0)
+            ax.plot(rhos[filt], m[filt], color=c, marker="o", ms=5, mec="white", mew=1, label=f"Epoch {e:g}")
         ax.axhline(0, color="#5c5c58", lw=0.8)
         ax.set_title(label, loc="left")
-        ax.set_xlabel("Input similarity ρ")
-    axes[0].set_ylabel("Δ pairmate similarity\n(after − before training)")
-    axes[-1].legend(loc="best")
+        ax.set_xlabel("Input similarity")
+    axes[0].set_ylabel("Representational change")
+    if len(epochs) > 1:
+        axes[-1].legend(loc="best")
     save(fig, out_dir, "change")
 
 

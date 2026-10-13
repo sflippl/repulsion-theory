@@ -1,5 +1,5 @@
-MODELS=("dual_stream_linear_severe" "dual_stream_linear") #("linear_network" "dual_stream_linear" "relu_network" "attention" "complete_model_fav" "complete_model_relu_fav")
-EXPERIMENTS=("wanjia2021_v2")
+MODELS=("dual_stream_linear_severe" "dual_stream_linear" "linear_network" "dual_stream_linear" "relu_network" "attention" "complete_model_fav" "complete_model_relu_fav")
+EXPERIMENTS=("wanjia2021_v3")
 
 for model in "${MODELS[@]}"; do
     for experiment in "${EXPERIMENTS[@]}"; do
