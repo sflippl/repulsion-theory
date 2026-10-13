@@ -3,12 +3,16 @@
 Port of ``integration-and-repulsion/24_wammes.ipynb``.  ``n_pairs`` item pairs
 ``(x_i, y_i)`` with ``corr(x_i, y_i)`` spaced linearly in ``[rho_min, rho_max]``
 are presented as superpositions ``sqrt(phi) x + sqrt(1 - phi) y`` (scaled by
-``magnitude``).  The training set contains the true pairs ``(x_i, y_i)``
+``magnitude``).  With ``separate_inputs`` (default) the two weighted items
+arrive in separate input slots and each stream sums them after its fixed
+projection: the dense stream sees ``x' + y'`` (identical to the superposition),
+the kWTA stream ``kwta(P x') + kwta(P y')``.  The training set contains the true pairs ``(x_i, y_i)``
 repeated ``pair_repeats`` times plus, optionally, every cross combination
 ``(x_j, y_i)`` (including the true pairs once more).  The target is the same
 superposition built with ``phi_out``/``magnitude_out``.
 
-Throughout training the individual items are probed, and for each stream the
+Throughout training the individual items are probed (each alone in its own
+slot when ``separate_inputs``), and for each stream the
 correlation between the hidden representations of ``x_i`` and ``y_j`` is
 recorded.
 
@@ -27,6 +31,8 @@ Usage
 -----
     python scripts/tasks/wammes2021.py
     python scripts/tasks/wammes2021.py stimuli.phi_in=0.8 training.lr=0.05
+    # kWTA applied to the superposition instead of to each item
+    python scripts/tasks/wammes2021.py stimuli.separate_inputs=false
     # notebook-style full-batch gradient descent
     python scripts/tasks/wammes2021.py training.batch_size=null training.momentum=0 training.lr=10 training.epochs=5000
     # single stream: drop the kWTA stream
@@ -80,6 +86,7 @@ class StimuliConfig:
     phi_out: float = 0.5   # salience of the first item in the target
     magnitude_in: float = 1.0
     magnitude_out: float = 1.0
+    separate_inputs: bool = True  # x and y in separate slots, summed after each stream's projection
 
 
 def _default_networks() -> list[dict]:
@@ -123,7 +130,9 @@ ConfigStore.instance().store(name="wammes2021", node=WammesConfig)
 def build_data(cfg: StimuliConfig, rng: np.random.Generator):
     """Return ``(X, Y, probe, rhos, items_x, items_y)``.
 
-    ``probe`` interleaves the items as ``x_0, y_0, x_1, y_1, ...``.
+    ``probe`` interleaves the items as ``x_0, y_0, x_1, y_1, ...``.  With
+    ``separate_inputs``, ``X`` and ``probe`` are ``[x-slot, y-slot]`` of width
+    ``2 * dim``, and each probed item sits in its own slot with the other zeroed.
     """
     rhos = np.linspace(cfg.rho_min, cfg.rho_max, cfg.n_pairs)
     pairs = correlated_pairs(rhos, dim=cfg.dim, rng=rng)
@@ -134,10 +143,22 @@ def build_data(cfg: StimuliConfig, rng: np.random.Generator):
     if cfg.include_nonpairs:
         combos += [(j, i) for i in range(cfg.n_pairs) for j in range(cfg.n_pairs)]
     xi, yi = np.array(combos).T
-    X = superpose(items_x[xi], items_y[yi], cfg.phi_in, cfg.magnitude_in)
     Y = superpose(items_x[xi], items_y[yi], cfg.phi_out, cfg.magnitude_out)
+    if not cfg.separate_inputs:
+        X = superpose(items_x[xi], items_y[yi], cfg.phi_in, cfg.magnitude_in)
+        probe = np.stack([items_x, items_y], axis=1).reshape(-1, cfg.dim)
+        return X, Y, probe, rhos, items_x, items_y
 
-    probe = np.stack([items_x, items_y], axis=1).reshape(-1, cfg.dim)
+    zeros_x, zeros_y = np.zeros_like(items_x[xi]), np.zeros_like(items_y[yi])
+    X = np.concatenate([
+        superpose(items_x[xi], zeros_y, cfg.phi_in, cfg.magnitude_in),
+        superpose(zeros_x, items_y[yi], cfg.phi_in, cfg.magnitude_in),
+    ], axis=1)
+    zeros = np.zeros_like(items_x)
+    probe = np.stack([
+        np.concatenate([items_x, zeros], axis=1),
+        np.concatenate([zeros, items_y], axis=1),
+    ], axis=1).reshape(-1, 2 * cfg.dim)
     return X, Y, probe, rhos, items_x, items_y
 
 
@@ -152,7 +173,11 @@ def main(cfg: WammesConfig) -> None:
     X, Y, probe, rhos, items_x, items_y = build_data(cfg.stimuli, rng)
     log.info("Training set: %d stimuli, dim %d.", *X.shape)
 
-    model = build_model(OmegaConf.to_container(cfg.model.networks, resolve=True), in_dim=cfg.stimuli.dim)
+    model = build_model(
+        OmegaConf.to_container(cfg.model.networks, resolve=True),
+        in_dim=cfg.stimuli.dim,
+        n_input_slots=2 if cfg.stimuli.separate_inputs else 1,
+    )
     log.info("Model: %d trainable parameters.", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     train_cfg = TrainConfig(**OmegaConf.to_container(cfg.training, resolve=True))

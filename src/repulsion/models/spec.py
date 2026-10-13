@@ -123,6 +123,10 @@ def build_single_network(
                 spec.get("fixed_projection_leaky_relu_slope", 0.01)
             )
         slot_dims_for_proj = [input_slot_dims[s] for s in input_slots] if slot_grouped else None
+        if spec.get("sum_input_slots", False):
+            if slot_grouped:
+                raise ValueError("sum_input_slots cannot be combined with fixed_projection_slot_grouping.")
+            this_input_dim = input_slot_dims[input_slots[0]]
         projection_layer = RandomProjection(
             input_dim=this_input_dim,
             output_dim=proj_out_dim,
@@ -145,6 +149,7 @@ def build_single_network(
         init_scale=init_scale,
         attention_layer=attention_layer,
         projection_layer=projection_layer,
+        sum_input_slots=bool(spec.get("sum_input_slots", False)),
     )
 
 

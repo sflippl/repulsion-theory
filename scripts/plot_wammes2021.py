@@ -19,14 +19,16 @@ Usage
 from __future__ import annotations
 
 import argparse
+import glob
 import os
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import matplotlib
 
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import Normalize
+from matplotlib.colors import LinearSegmentedColormap, Normalize
+from scipy import stats
 
 LINE = "#2a78d6"
 BASELINE = "#8a8a85"

@@ -82,6 +82,10 @@ class SingleNetwork(nn.Module):
         attention_layer: Optional pre-MLP attention layer.
         projection_layer: Optional frozen random projection (applied after
             attention, before MLP).
+        sum_input_slots: If True, the input slots (which must share one width)
+            are passed through the projection separately and then summed, i.e.
+            the MLP sees ``proj(x_1) + proj(x_2) + ...`` (or ``x_1 + x_2 + ...``
+            without a projection) instead of the concatenation.
     """
 
     def __init__(
@@ -99,6 +103,7 @@ class SingleNetwork(nn.Module):
         init_scale: float,
         attention_layer: Optional[AttentionLayer] = None,
         projection_layer: Optional[RandomProjection] = None,
+        sum_input_slots: bool = False,
     ) -> None:
         super().__init__()
         self.input_slot_names = input_slot_names
@@ -111,8 +116,16 @@ class SingleNetwork(nn.Module):
 
         self.attention = attention_layer    # None or AttentionLayer (registered auto)
         self.projection = projection_layer  # None or RandomProjection (frozen)
+        self.sum_input_slots = sum_input_slots
 
         this_input_dim = sum(all_input_slot_dims[s] for s in input_slot_names)
+        if sum_input_slots:
+            if attention_layer is not None:
+                raise ValueError("sum_input_slots cannot be combined with an attention layer.")
+            slot_dims = {all_input_slot_dims[s] for s in input_slot_names}
+            if len(slot_dims) != 1:
+                raise ValueError(f"sum_input_slots requires equal input slot widths; got {sorted(slot_dims)}.")
+            this_input_dim = slot_dims.pop()
         mlp_input_dim = (
             projection_layer.output_dim
             if projection_layer is not None
@@ -159,6 +172,16 @@ class SingleNetwork(nn.Module):
             local_off += pred_dim
         return scattered
 
+    def _project(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the fixed projection (if any), per slot and summed if ``sum_input_slots``."""
+        if self.sum_input_slots:
+            x = x.unflatten(-1, (len(self.input_slot_names), -1))
+        if self.projection is not None:
+            x = self.projection(x)
+        if self.sum_input_slots:
+            x = x.sum(dim=-2)
+        return x
+
     def forward(
         self,
         full_input: torch.Tensor,
@@ -167,8 +190,7 @@ class SingleNetwork(nn.Module):
         x = self._extract_input(full_input)
         if self.attention is not None:
             x = self.attention(x, sample_ids)
-        if self.projection is not None:
-            x = self.projection(x)
+        x = self._project(x)
         return self._scatter_output(self.mlp(x))
 
     def extract(
@@ -212,10 +234,9 @@ class SingleNetwork(nn.Module):
         if layer == "post_projection":
             if self.projection is None:
                 raise ValueError("Layer 'post_projection' requested but this network has no projection layer.")
-            return self.projection(x)
+            return self._project(x)
 
-        if self.projection is not None:
-            x = self.projection(x)
+        x = self._project(x)
 
         # Step through the MLP, collecting hidden-layer outputs at non-Linear modules.
         hidden_idx = 0
