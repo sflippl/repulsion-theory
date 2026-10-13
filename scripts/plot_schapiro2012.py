@@ -10,15 +10,21 @@ averaged within each strong/weak × input-similarity condition):
                             value before training;
 2. ``change_raw``           pairmate similarity minus its value before training,
                             with the non-pairmate ("shuffled pairs") change dashed;
-3. ``loss``                 training loss per epoch, one line per setting.
+3. ``categories_step<N>``   pairmate-similarity change from before training at
+                            step N (``--step``; nearest evaluation, default the
+                            final step → ``categories_final``) for the five
+                            stimulus categories: shuffled pairs plus the four
+                            strong/weak × input-similarity conditions;
+4. ``loss``                 training loss per epoch, one line per setting.
 
-Figures 1–2 have one row per (phi_in, phi_out) setting and one column per
-pathway (dense / sparse kWTA), on a log epoch axis.
+Figures 1–3 have one row per (phi_in, phi_out) setting and one column per
+pathway (dense / sparse kWTA); figures 1–2 use a log epoch axis.
 
 Usage
 -----
     python scripts/plot_schapiro2012.py data/schapiro2012/online
     python scripts/plot_schapiro2012.py data/schapiro2012/online --linx --out figures/schapiro2012/online
+    python scripts/plot_schapiro2012.py data/schapiro2012/online --step 2000
 """
 from __future__ import annotations
 
@@ -101,6 +107,46 @@ def plot_grid(settings: list[dict], out_dir: str, name: str, logx: bool, relativ
     save(fig, out_dir, name)
 
 
+def nearest_eval(data, step: int) -> int:
+    """Index of the evaluation closest to *step* (with a note if it is not exact)."""
+    t = int(np.argmin(np.abs(data["eval_steps"] - step)))
+    if data["eval_steps"][t] != step:
+        print(f"note: step {step} → nearest evaluation at step {data['eval_steps'][t]} ({setting_label(data)})")
+    return t
+
+
+def plot_categories(settings: list[dict], out_dir: str, step: int | None) -> None:
+    """Pairmate-similarity change at one step for the five stimulus categories (shuffled pairs + 4 conditions)."""
+    n_streams = len(settings[0]["stream_sparse"])
+    fig, axes = plt.subplots(
+        len(settings), n_streams, figsize=(3.6 * n_streams, 2.6 * len(settings)),
+        sharey=True, squeeze=False, constrained_layout=True,
+    )
+    shown_steps = set()
+    for row, data in zip(axes, settings):
+        t = len(data["eval_steps"]) - 1 if step is None else nearest_eval(data, step)
+        shown_steps.add(int(data["eval_steps"][t]))
+        for ax, (s, stream_label) in zip(row, streams(data)):
+            pc = data["pair_corr"][:, :, s]            # (seeds, T, n)
+            base = data["baseline"][:, :, s].mean(-1)  # (seeds, T)
+            cats = [("Shuffled pairs", base[:, t] - base[:, 0], BASELINE)]
+            cats += [(label, (pc[:, t, idx] - pc[:, 0, idx]).mean(-1), color)
+                     for (label, idx), color in zip(conditions(data), CATEGORICAL)]
+            for i, (_, values, color) in enumerate(cats):
+                m, h = mean_ci(values)
+                ax.errorbar(i, m, yerr=h, fmt="o", color=color, ms=7, mec="white", mew=1, capsize=3, lw=1.5)
+            ax.axhline(0, color=INK_MUTED, lw=0.8)
+            ax.set_xticks(range(len(cats)), [label for label, _, _ in cats], rotation=35, ha="right")
+            ax.set_xlim(-0.5, len(cats) - 0.5)
+            ax.grid(axis="x", visible=False)
+            ax.set_title(f"{stream_label} · {setting_label(data)}", loc="left", fontsize=9.5)
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Δ pairmate similarity")
+    shown = shown_steps.pop() if len(shown_steps) == 1 else None
+    fig.suptitle(f"Step {shown}" if shown is not None else "Final step", x=0.0, ha="left", fontsize=10)
+    save(fig, out_dir, f"categories_step{shown}" if step is not None else "categories_final")
+
+
 def plot_loss(settings: list[dict], out_dir: str) -> None:
     fig, ax = plt.subplots(figsize=(5.2, 3.4), constrained_layout=True)
     colors = [RAMP(v) for v in (np.linspace(0, 1, len(settings)) if len(settings) > 1 else [1.0])]
@@ -120,6 +166,8 @@ def main() -> None:
     p.add_argument("sweep_dir")
     p.add_argument("--out", default=None, help="output directory (default: figures/schapiro2012/<sweep dir name>)")
     p.add_argument("--linx", action="store_true", help="linear instead of log epoch axis")
+    p.add_argument("--step", type=int, default=None,
+                   help="training step for the categories figure (nearest evaluation; default: final step)")
     args = p.parse_args()
 
     setup_style()
@@ -131,6 +179,7 @@ def main() -> None:
 
     plot_grid(settings, out_dir, "change_rel_baseline", logx=not args.linx, relative=True)
     plot_grid(settings, out_dir, "change_raw", logx=not args.linx, relative=False)
+    plot_categories(settings, out_dir, args.step)
     plot_loss(settings, out_dir)
 
 
