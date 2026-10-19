@@ -72,10 +72,13 @@ class RandomProjection(nn.Module):
         normalize: If True, rescale the weights so that the projected and
             activated features have the same expected squared norm as the
             input (E||act(Wx)||^2 = ||x||^2), i.e. the stream sees inputs of
-            the same magnitude as a stream without a projection.  Exact for
-            an ungrouped projection; with ``slot_dims`` it assumes each slot's
-            squared norm is proportional to its width (otherwise kWTA favours
-            the larger slot and the norm comes out somewhat larger).
+            the same magnitude as a stream without a projection.  With
+            ``slot_dims`` this is done per slot: the activation (e.g. kWTA,
+            with k = frac * slot output width) is applied within each slot's
+            block rather than across all blocks, and each block keeps its
+            slot's norm, so empty or unequal-norm slots don't shift features
+            between slots.  Without ``normalize`` the activation is applied to
+            the concatenated blocks, as before.
         **activation_kwargs: Passed to :func:`build_activation`.
     """
 
@@ -113,28 +116,32 @@ class RandomProjection(nn.Module):
                 nn.init.normal_(layer.weight, std=1.0 / math.sqrt(in_dim))
                 layer.weight.requires_grad_(False)
 
+        # Per-slot activation (and normalization) when normalizing a slot-grouped projection.
+        self.per_slot_activation = normalize and self.slot_dims is not None
+
         if normalize:
-            # Each projected unit has variance ||x||^2 / input_dim, so the
-            # activated features have E||.||^2 = ||x||^2 * output_dim / input_dim * gain.
-            gain = expected_squared_gain(activation, output_dim, **activation_kwargs)
-            scale = math.sqrt(input_dim / (output_dim * gain))
+            # Each projected unit has variance ||x||^2 / in_dim, so the activated
+            # features have E||.||^2 = ||x||^2 * out_dim / in_dim * gain.
+            if self.linear is not None:
+                blocks = [(self.linear, input_dim, output_dim)]
+            else:
+                blocks = list(zip(self.slot_linears, self.slot_dims, self.slot_output_dims))
             with torch.no_grad():
-                for p in self.parameters():
-                    p.mul_(scale)
+                for layer, in_dim, out_dim in blocks:
+                    gain = expected_squared_gain(activation, out_dim, **activation_kwargs)
+                    layer.weight.mul_(math.sqrt(in_dim / (out_dim * gain)))
 
         self.activation = build_activation(activation, **activation_kwargs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.linear is not None:
-            proj = self.linear(x)
-        else:
-            assert self.slot_dims is not None and self.slot_linears is not None
-            parts = torch.split(x, self.slot_dims, dim=-1)
-            proj = torch.cat(
-                [layer(part) for layer, part in zip(self.slot_linears, parts)],
-                dim=-1,
-            )
-        return self.activation(proj)
+            return self.activation(self.linear(x))
+        assert self.slot_dims is not None and self.slot_linears is not None
+        parts = torch.split(x, self.slot_dims, dim=-1)
+        projected = [layer(part) for layer, part in zip(self.slot_linears, parts)]
+        if self.per_slot_activation:
+            return torch.cat([self.activation(p) for p in projected], dim=-1)
+        return self.activation(torch.cat(projected, dim=-1))
 
     @staticmethod
     def _validate_slot_dims(input_dim: int, output_dim: int, slot_dims: list[int]) -> None:

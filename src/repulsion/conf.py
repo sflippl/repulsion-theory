@@ -106,7 +106,8 @@ class NetworkConf:
     fixed_projection_leaky_relu_slope: float = 0.01
     # Rescale the projection weights so the projected features have the same
     # expected norm as the input (matches the input magnitude of streams
-    # without a projection).
+    # without a projection). With slot grouping this is per slot, and the
+    # activation (e.g. kWTA) is then also applied within each slot's block.
     fixed_projection_normalize: bool = False
 
 
