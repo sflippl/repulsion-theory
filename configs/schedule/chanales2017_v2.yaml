@@ -9,4 +9,4 @@
 
 component_type: autoencoding
 batch_size: 1    # null = full-batch
-epochs: 400 # 14 are minimum I think?
+epochs: 28 # 14 are minimum I think?

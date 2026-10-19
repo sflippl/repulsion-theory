@@ -1,0 +1,28 @@
+# @package _global_.dataset
+
+slots:
+  input:
+    route: route
+    destination: destination
+  output:
+    route: route
+    destination: destination
+tasks:
+  - name: autoencoding
+    input:
+      route:
+        magnitude: 1.0
+      destination:
+        magnitude: 1.0
+    output:
+      route:
+        magnitude: 1.0
+      destination:
+        magnitude: 1.0
+  - name: probing
+    input:
+      route:
+        magnitude: 1.0
+    output:
+      destination:
+        magnitude: 1.0

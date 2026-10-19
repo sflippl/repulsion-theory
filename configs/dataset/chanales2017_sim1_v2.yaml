@@ -3,8 +3,10 @@
 slots:
   input:
     route: route
+    destination: destination
   output:
     route: route
+    destination: destination
 tasks:
   - name: autoencoding
     input:
