@@ -4,20 +4,36 @@ from __future__ import annotations
 import math
 from typing import Sequence
 
-import numpy as np
 import torch
 import torch.nn as nn
-from scipy.stats import binom, norm
 
 from repulsion.models.activations import build_activation
+
+
+def _kwta_squared_gain(k: int, n: int, chunk: int = 256) -> float:
+    """E[sum of the k largest z_i^2] / n for n i.i.d. N(0, 1) values.
+
+    Equals E[z^2; fewer than k of the other n-1 units exceed z], i.e. the
+    integral of z^2 * pdf(z) * P(Binomial(n-1, sf(z)) <= k-1), evaluated on a
+    grid. The binomial CDF is summed in log space, in chunks over the count.
+    """
+    z = torch.linspace(-10.0, 10.0, 8001, dtype=torch.float64)
+    p = torch.special.ndtr(-z).clamp(1e-300, 1.0 - 1e-16)  # P(other unit > z)
+    log_p, log_q = torch.log(p)[:, None], torch.log1p(-p)[:, None]
+    log_cdf = torch.full_like(z, -math.inf)
+    for start in range(0, k, chunk):
+        j = torch.arange(start, min(start + chunk, k), dtype=torch.float64)
+        log_pmf = (math.lgamma(n) - torch.lgamma(j + 1) - torch.lgamma(n - j)
+                   + j * log_p + (n - 1 - j) * log_q)
+        log_cdf = torch.logaddexp(log_cdf, torch.logsumexp(log_pmf, dim=1))
+    pdf = torch.exp(-0.5 * z ** 2) / math.sqrt(2 * math.pi)
+    return torch.trapezoid(z ** 2 * pdf * log_cdf.exp(), z).item()
 
 
 def expected_squared_gain(activation: str, output_dim: int, **activation_kwargs) -> float:
     """E[||act(h)||^2] / output_dim for ``h`` with i.i.d. N(0, 1) entries.
 
-    For ``kwta`` this is exact at finite width: with k winners out of n
-    units, E[sum of the k largest z_i^2] = n * E[z^2; fewer than k of the
-    other n-1 units exceed z], integrated numerically.
+    For ``kwta`` this is exact at finite width (see :func:`_kwta_squared_gain`).
 
     Raises:
         ValueError: For activations that are not positively homogeneous
@@ -33,9 +49,7 @@ def expected_squared_gain(activation: str, output_dim: int, **activation_kwargs)
         return 0.5 * (1.0 + slope ** 2)
     if activation == "kwta":
         k = max(1, round(activation_kwargs.get("frac", 0.1) * output_dim))
-        z = np.linspace(-10.0, 10.0, 40001)
-        p_win = binom.cdf(k - 1, output_dim - 1, norm.sf(z))
-        return float(np.trapz(z ** 2 * norm.pdf(z) * p_win, z))
+        return _kwta_squared_gain(k, output_dim)
     raise ValueError(
         f"Cannot normalize a projection with activation '{activation}' "
         "(only identity, relu, leaky_relu and kwta are supported)."
