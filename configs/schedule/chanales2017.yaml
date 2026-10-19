@@ -9,4 +9,4 @@
 
 component_type: prediction
 batch_size: 1    # null = full-batch
-epochs: 14
+epochs: 28 # 14 are minimum I think?

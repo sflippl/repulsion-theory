@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - override /dataset: dimsdalezucker2018
+  - override /schedule: dimsdalezucker2018
+  - override /items: dimsdalezucker2018
+  - override /evaluation: dimsdalezucker2018
+
+experiment_hparams:
+  scene_corr_between: 0.
+  scene_corr_within: 0.5
+  face_corr: 0.2
+  

@@ -79,8 +79,8 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class StimuliConfig:
-    pair_corrs: List[float] = field(default_factory=lambda: [0.5] * 4 + [0.9] * 4)
-    between_corr: float = 0.5
+    pair_corrs: List[float] = field(default_factory=lambda: [0.2] * 4 + [0.6] * 4)
+    between_corr: float = 0.2
     strong_pairs: List[int] = field(default_factory=lambda: [0, 1, 4, 5])  # all other pairs are weak
     dim: int = 128
     n_events: int = 1000

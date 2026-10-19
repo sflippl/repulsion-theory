@@ -2,7 +2,7 @@
 defaults:
   - override /dataset: chanales2017_sim1
   - override /schedule: chanales2017
-  - override /items: chanales2017_sim1
+  - override /items: chanales2017_exp1
   - override /evaluation: chanales2017
 
 experiment_hparams:

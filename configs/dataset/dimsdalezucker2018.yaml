@@ -1,0 +1,34 @@
+# @package _global_.dataset
+
+slots:
+  input:
+    room: room
+    object: object
+    video: video
+  output:
+    room: room
+    object: object
+    video: video
+tasks:
+  - name: autoencoding
+    input:
+      room:
+        magnitude: 1.0
+      object:
+        magnitude: 1.0
+      video:
+        magnitude: 1.0
+    output:
+      room:
+        magnitude: 1.0
+      object:
+        magnitude: 1.0
+      video:
+        magnitude: 1.0
+  - name: object_input
+    input:
+      object:
+        magnitude: 1.0
+    output:
+      object:
+        magnitude: 1.0

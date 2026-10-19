@@ -3,6 +3,7 @@ defaults:
   - /experiment_hparams: chanales2021
 
 items:
+  save_ground_truth: true
   items:
     - name: color
       stimulus_type: circular

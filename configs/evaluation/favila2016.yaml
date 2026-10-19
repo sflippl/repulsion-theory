@@ -22,3 +22,8 @@ evaluations:
     task: face_prediction
     save: loss
     eval_every_log_steps: 1.01
+  
+  - name: output
+    task: face_prediction
+    save: output
+    eval_every_log_steps: 1.01

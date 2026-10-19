@@ -6,5 +6,6 @@ partition: abbott
 timeout_min: 1440
 cpus_per_task: 4
 mem_gb: 48
+exclude: "ax03,ax04,ax05,ax16"
 
 submitit_folder: ${hydra.sweep.dir}/.submitit/%j

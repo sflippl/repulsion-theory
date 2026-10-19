@@ -1,5 +1,5 @@
 MODELS=("complete_model_extreme_fav") #("linear_network" "dual_stream_linear" "relu_network" "attention" "complete_model" "complete_model_relu", "complete_model_extreme", "dual_stream_linear_severe", "complete_model_fav" "complete_model_extreme_fav_v2")
-EXPERIMENTS=("chanales2017_sim1")
+EXPERIMENTS=("chanales2017_sim1" "chanales2017_sim1_v2")
 
 for model in "${MODELS[@]}"; do
     for experiment in "${EXPERIMENTS[@]}"; do

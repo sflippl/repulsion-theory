@@ -1,0 +1,43 @@
+# @package _global_
+defaults:
+  - /experiment_hparams: favila2016
+
+items:
+  items:
+    - name: object
+      corr_between: ${experiment_hparams.scene_corr_between}
+      corr_within: ${experiment_hparams.scene_corr_within}
+      n_groups: 6
+      n_items: 2
+      dim: 128
+      corr_between: 0.
+      corr_within: 0.
+      subgroups:
+        - name: same_video_same_room
+        - name: diff_video_same_room
+        - name: diff_video_diff_room
+    - name: room
+      corr_between: ${experiment_hparams.face_corr}
+      corr_within: ${experiment_hparams.face_corr}
+      n_groups: 6
+      n_items: 2
+      dim: 128
+      corr_between: 0.
+      corr_within: 0.
+      subgroups:
+        - name: same_video_same_room
+          corr_within: 1.
+        - name: diff_video_same_room
+          corr_within: 1.
+        - name: diff_video_diff_room
+    - name: video
+      n_groups: 6
+      n_items: 2
+      dim: 128
+      corr_between: 0.
+      corr_within: 0.
+      subgroups:
+        - name: same_video_same_room
+          corr_within: 1.
+        - name: diff_video_same_room
+        - name: diff_video_diff_room
