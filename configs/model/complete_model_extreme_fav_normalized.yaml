@@ -1,0 +1,27 @@
+# @package _global_.model
+#
+# complete_model_extreme_fav with a normalized fixed projection: the kWTA
+# projection weights are rescaled so that net2's projected features have the
+# same expected norm as the raw input seen by net1 (otherwise ~1.48x larger
+# for 128 -> 10000 units with kwta_frac 0.003).
+
+networks:
+  - name: net1
+    hidden_sizes: [128]
+    activation: identity
+    init_scale: 0.2
+    attention_layer: true
+    fixed_projection: false
+
+  - name: net2
+    hidden_sizes: [128]
+    activation: identity
+    init_scale: 0.2
+    attention_layer: true
+    fixed_projection: true
+    fixed_projection_hidden_size: 10000
+    fixed_projection_slot_grouping: true
+    fixed_projection_activation: kwta
+    fixed_projection_kwta_frac: 0.003
+    fixed_projection_normalize: true
+    attention_layer_gating: 10.0

@@ -132,6 +132,7 @@ def build_single_network(
             output_dim=proj_out_dim,
             activation=proj_act,
             slot_dims=slot_dims_for_proj,
+            normalize=bool(spec.get("fixed_projection_normalize", False)),
             **proj_act_kw,
         )
 

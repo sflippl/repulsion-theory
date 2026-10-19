@@ -104,6 +104,10 @@ class NetworkConf:
     fixed_projection_activation: str = "identity"
     fixed_projection_kwta_frac: float = 0.1
     fixed_projection_leaky_relu_slope: float = 0.01
+    # Rescale the projection weights so the projected features have the same
+    # expected norm as the input (matches the input magnitude of streams
+    # without a projection).
+    fixed_projection_normalize: bool = False
 
 
 @dataclass
