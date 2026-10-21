@@ -9,11 +9,11 @@
 
 evaluations:
   - name: representations
-    task: prediction
+    task: autoencoding
     save: representation
     eval_every_log_steps: 1.01
 
   - name: loss_prediction
-    task: prediction
+    task: autoencoding
     save: loss
     eval_every_log_steps: 1.01

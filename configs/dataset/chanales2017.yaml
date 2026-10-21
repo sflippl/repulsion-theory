@@ -1,0 +1,15 @@
+# @package _global_.dataset
+
+slots:
+  input:
+    route: route
+  output:
+    route: route
+tasks:
+  - name: autoencoding
+    input:
+      route:
+        magnitude: 1.0
+    output:
+      route:
+        magnitude: 1.0

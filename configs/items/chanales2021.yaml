@@ -1,0 +1,45 @@
+# @package _global_
+defaults:
+  - /experiment_hparams: chanales2021
+
+items:
+  save_ground_truth: true
+  items:
+    - name: color
+      n_groups: 6
+      n_items: 2
+      corr_between: 0.
+      dim: 128 # 64 dimensions per group
+      subgroups:
+        - name: ultra_sim
+          corr_within: 0.99
+        - name: high_sim
+          corr_within: 0.9
+        - name: med_sim
+          corr_within: 0.2
+        - name: low_sim
+          corr_within: 0.1
+    - name: face
+      corr_between: ${experiment_hparams.face_corr}
+      n_groups: 6
+      n_items: 2
+      dim: 128
+      subgroups:
+        - name: ultra_sim
+        - name: high_sim
+        - name: med_sim
+        - name: low_sim
+    - name: object
+      corr_between: 0.
+      n_groups: 6
+      n_items: 2
+      dim: 128
+      subgroups:
+        - name: ultra_sim
+        - name: high_sim
+        - name: med_sim
+        - name: low_sim
+
+hydra:
+  sweep:
+    dir: chanales2021_exp1/${model}

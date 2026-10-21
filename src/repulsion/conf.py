@@ -183,38 +183,23 @@ class ExperimentHParams:
 @dataclass
 class Favila2016HParams(ExperimentHParams):
     scene_corr_between: float = 0.0
-    scene_corr_within: float = 0.2
-    face_corr: float = 0.05
-    prediction_weight: float = 1.0
+    scene_corr_within: float = 0.5
+    face_corr: float = 0.2
+    prediction_weight: float = 0.0
 
 @dataclass
 class Wanjia2021HParams(ExperimentHParams):
     scene_corr_between: float = 0.0
-    scene_high_corr: float = 0.7
-    scene_low_corr: float = 0.3
-    object_high_corr: float = 0.7
-    object_low_corr: float = 0.3
+    scene_high_corr: float = 0.6
+    scene_low_corr: float = 0.4
+    object_high_corr: float = 0.6
+    object_low_corr: float = 0.4
 
 @dataclass
-class Favila2016V2HParams(ExperimentHParams):
-    scene_corr_between: float = 0.0
-    dims_shared: int = 64
-    dims_unique: int = 64
-    face_corr: float = 0.05
-    prediction_weight: float = 1.0
-
-@dataclass
-class Chanales2017Sim1HParams(ExperimentHParams):
+class Chanales2017HParams(ExperimentHParams):
     route_corr_between: float = 0.0
     route_corr_within: float = 0.9
     destination_corr: float = 0.0
-
-@dataclass
-class Chanales2017Sim2HParams(ExperimentHParams):
-    dim_total: int = 128
-    dim_shared: int = 64
-    destination_corr: float = 0.0
-    route_corr_between: float = 0.0
 
 @dataclass
 class Chanales2021HParams(ExperimentHParams):
@@ -265,12 +250,6 @@ def _register() -> None:
         name="favila2016",
         node=Favila2016HParams,
     )
-
-    cs.store(
-        group="experiment_hparams",
-        name="favila2016_v2",
-        node=Favila2016V2HParams,
-    )
     
     cs.store(
         group="experiment_hparams",
@@ -280,14 +259,10 @@ def _register() -> None:
     
     cs.store(
         group="experiment_hparams",
-        name="chanales2017_sim1",
-        node=Chanales2017Sim1HParams,
+        name="chanales2017",
+        node=Chanales2017HParams,
     )
-    cs.store(
-        group="experiment_hparams",
-        name="chanales2017_sim2",
-        node=Chanales2017Sim2HParams,
-    )
+    
     cs.store(
         group="experiment_hparams",
         name="chanales2021",

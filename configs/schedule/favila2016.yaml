@@ -2,8 +2,5 @@
 
 component_type:
   - autoencoding
-  - face_prediction
-epochs: 16
-joint: true
-weights: [1.0, 0.1]
+epochs: 8
 batch_size: 1

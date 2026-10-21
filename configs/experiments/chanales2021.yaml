@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - override /dataset: chanales2021
+  - override /schedule: chanales2021
+  - override /items: chanales2021
+  - override /evaluation: chanales2021
+
+experiment_hparams:
+  prediction_test_weight: 1.0
+  association_weight: 3.0
+  face_corr: 0.05
