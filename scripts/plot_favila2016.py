@@ -1,23 +1,26 @@
 """plot_favila2016.py — summary figure for Favila et al. (2016) simulations.
 
 One figure per sweep directory (one model × one training objective), mean ±
-SEM across seeds.  Panels:
+SEM across seeds, in the style of the paper figures:
 
-1. scene-face autoencoding loss   (different-face, same-face)
-2. scene autoencoding loss        (no-face, different-face, same-face)
-3. association accuracy vs. pairmate face        (different-face)
-4. association accuracy vs. all non-pairmate faces  (different-face, same-face)
-5+. pairmate score for each stream's hidden layer   (all three conditions)
+a. scene-face autoencoding loss                       (Diff., Same)
+b. strict face-recall accuracy vs. the pairmate face (Diff.) and vs.
+   non-pairmate faces (Diff., Same)
+c. soft face recall, same comparisons
+d. pairmate score in the MSP (net1, dashed) and TSP (net2, dash-dot) network
+   hidden layer                                       (No, Diff., Same)
 
-Association accuracy presents only the scene and reads out the face slot.  A
-trial is correct if the output is closer (Euclidean) to the scene's own face
-than to the competitor(s): the pairmate's face (panel 3), or every face
-belonging to another pair (panel 4, a strict nearest-neighbour test).  The
-pairmate score is the mean correlation between pairmates minus the mean
-correlation between non-pairmates within a condition.
+Face recall presents only the scene and reads out the face slot.  The
+competitor is the pairmate's face, or the nearest face belonging to another
+pair.  Strict accuracy: the output is closer (Euclidean) to the scene's own
+face than to the competitor.  Soft recall: 1 - d_own / (d_own + d_comp),
+which is 1 for a perfect recall, 0.5 when equidistant, and > 0.5 exactly
+when the strict test is passed.  The pairmate score is the mean
+correlation between pairmates minus the mean correlation between
+non-pairmates within a condition.
 
 The x-axis is in epochs of the respective phase; the scene-only phase is
-shaded.
+lightly shaded.
 
 Usage
 -----
@@ -48,28 +51,26 @@ from matplotlib.lines import Line2D
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from repulsion.schedule import build_training_schedule  # noqa: E402
 
+FAVILA_SG_COLORS = {
+    'no face':        'grey',
+    'different face': 'blue',
+    'same face':      'red',
+}
+FAVILA_LABELS = {
+    'no face':        'No',
+    'different face': 'Diff.',
+    'same face':      'Same',
+}
 CONDITIONS = ["no_face", "different_face", "same_face"]
-CONDITION_LABELS = {"no_face": "No face", "different_face": "Different face", "same_face": "Same face"}
-CONDITION_COLORS = {"no_face": "#8a8a85", "different_face": "#eb6834", "same_face": "#2a78d6"}
-# combined readout solid; individual streams dashed / dotted
-STREAM_STYLES = ["--", ":", "-."]
-PHASE_SHADE = "#f1f0ec"
+NETWORK_LABELS = ["MSP network", "TSP network"]
+# combined readout solid; individual streams dashed / dash-dot
+STREAM_STYLES = ["--", "-.", ":"]
+PHASE_SHADE = "#efefef"
 
-plt.rcParams.update({
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.grid": True,
-    "grid.color": "#e6e5e1",
-    "grid.linewidth": 0.6,
-    "axes.edgecolor": "#8a8a85",
-    "axes.labelcolor": "#2b2b29",
-    "axes.titlesize": 10,
-    "xtick.color": "#5c5c58",
-    "ytick.color": "#5c5c58",
-    "lines.linewidth": 2,
-    "legend.frameon": False,
-    "font.size": 9,
-})
+FONTSIZE = 7
+TICK_FONTSIZE = 6
+LINEWIDTH = 1.0
+PANEL_MM = (40, 34)
 
 
 # ── loading ──────────────────────────────────────────────────────────────────
@@ -140,8 +141,13 @@ def loss_by_condition(slot_outputs: list[dict], readout: str, rows: list[dict]) 
     return {c: per_row[:, m].mean(1) for c, m in condition_masks(rows).items()}
 
 
-def association_accuracy(face_out: dict, readout: str, rows: list[dict]) -> tuple[dict, dict]:
-    """Strict accuracy vs. the pairmate's face and vs. all non-pairmate faces."""
+def association_recall(face_out: dict, readout: str, rows: list[dict]) -> dict:
+    """Face recall vs. the pairmate's face ("pm") and vs. non-pairmate faces ("npm").
+
+    "acc_*": strict test, own face closer than the competitor(s).
+    "soft_*": 1 - d_own / (d_own + d_comp), with d_comp the distance to the
+    pairmate's face or to the nearest non-pairmate face (0.5 = equidistant).
+    """
     target = face_out["target"]
     faces, face_idx = np.unique(np.round(target, 8), axis=0, return_inverse=True)
     face_idx = face_idx.ravel()
@@ -152,20 +158,24 @@ def association_accuracy(face_out: dict, readout: str, rows: list[dict]) -> tupl
     n = len(rows)
     own = dist[:, np.arange(n), face_idx]                        # (T, N)
 
-    vs_pairmate = np.full(own.shape, np.nan)
-    vs_nonpair = np.empty(own.shape)
+    d_pairmate = np.full(own.shape, np.nan)
+    d_nonpair = np.empty(own.shape)
     for i, p in enumerate(pair):
         mates = [j for j, q in enumerate(pair) if q == p and j != i]
         mate_faces = {face_idx[j] for j in mates} - {face_idx[i]}
         if mate_faces:
-            vs_pairmate[:, i] = own[:, i] < dist[:, i, sorted(mate_faces)].min(-1)
+            d_pairmate[:, i] = dist[:, i, sorted(mate_faces)].min(-1)
         others = sorted(set(range(len(faces))) - pair_faces[p])
-        vs_nonpair[:, i] = own[:, i] < dist[:, i, others].min(-1)
+        d_nonpair[:, i] = dist[:, i, others].min(-1)
 
     masks = condition_masks(rows)
-    pm = {c: vs_pairmate[:, m].mean(1) for c, m in masks.items() if not np.isnan(vs_pairmate[:, m]).any()}
-    npm = {c: vs_nonpair[:, m].mean(1) for c, m in masks.items()}
-    return pm, npm
+    out = {}
+    for name, d_comp in (("pm", d_pairmate), ("npm", d_nonpair)):
+        valid = {c: m for c, m in masks.items() if not np.isnan(d_comp[:, m]).any()}
+        out[f"acc_{name}"] = {c: (own[:, m] < d_comp[:, m]).mean(1) for c, m in valid.items()}
+        soft = 1 - own / (own + d_comp)
+        out[f"soft_{name}"] = {c: soft[:, m].mean(1) for c, m in valid.items()}
+    return out
 
 
 def pairmate_score(reps: np.ndarray, rows: list[dict]) -> dict:
@@ -191,21 +201,19 @@ def compute_run(run_dir: str, readouts: list[str], layer: str) -> dict:
 
     steps = np.load(os.path.join(run_dir, "representations_steps.npy"))
     res["epochs"], res["phase_edges"] = steps_to_epochs(run_dir, cfg, steps)
-    for probe in ("output_autoencoding", "output_scene", "output_face_prediction"):
+    for probe in ("output_autoencoding", "output_face_prediction"):
         if not np.array_equal(np.load(os.path.join(run_dir, f"{probe}_steps.npy")), steps):
             raise ValueError(f"{probe} was evaluated at different steps than representations.")
 
     rows_sf = load_rows(run_dir, "output_autoencoding")
-    rows_s = load_rows(run_dir, "output_scene")
     rows_fp = load_rows(run_dir, "output_face_prediction")
     sf = [load_outputs(run_dir, "output_autoencoding", s, readouts) for s in ("face", "scene")]
-    s = [load_outputs(run_dir, "output_scene", "scene", readouts)]
     fp = load_outputs(run_dir, "output_face_prediction", "face", readouts)
 
     for r in readouts:
         res[("loss_sf", r)] = loss_by_condition(sf, r, rows_sf)
-        res[("loss_s", r)] = loss_by_condition(s, r, rows_s)
-        res[("acc_pm", r)], res[("acc_npm", r)] = association_accuracy(fp, r, rows_fp)
+        for metric, values in association_recall(fp, r, rows_fp).items():
+            res[(metric, r)] = values
 
     rows_rep = load_rows(run_dir, "representations")
     for ni in range(n_nets):
@@ -222,25 +230,33 @@ def mean_sem(arrays: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     return mat.mean(0), sem
 
 
-def plot_metric(ax, runs: list[dict], key, linestyle: str = "-", linewidth: float = 2) -> None:
+def condition_color(c: str) -> str:
+    return FAVILA_SG_COLORS[c.replace("_", " ")]
+
+
+def plot_metric(ax, runs: list[dict], key, linestyle: str = "-") -> None:
     x = runs[0]["epochs"]
     for c in CONDITIONS:
         if c not in runs[0][key]:
             continue
         mean, sem = mean_sem([r[key][c] for r in runs])
-        color = CONDITION_COLORS[c]
-        ax.plot(x, mean, color=color, linestyle=linestyle, linewidth=linewidth)
+        ax.plot(x, mean, color=condition_color(c), linestyle=linestyle, lw=LINEWIDTH)
         if sem.any():
-            ax.fill_between(x, mean - sem, mean + sem, color=color, alpha=0.15, linewidth=0)
+            ax.fill_between(x, mean - sem, mean + sem, color=condition_color(c),
+                            alpha=0.2, linewidth=0)
 
 
-def shade_phases(ax, edges: list[float], labels: list[str]) -> None:
+def style_axis(ax, edges: list[float]) -> None:
+    """Shade every second training phase, fix x-limits, set paper fonts."""
     for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
         if i % 2 == 1:
             ax.axvspan(lo, hi, color=PHASE_SHADE, zorder=0, linewidth=0)
-        ax.text((lo + hi) / 2, 1.0, labels[i], transform=ax.get_xaxis_transform(),
-                ha="center", va="bottom", fontsize=7, color="#8a8a85")
     ax.set_xlim(edges[0], edges[-1])
+    ax.set_xticks(edges)
+    ax.set_xlabel("Epoch", fontsize=FONTSIZE, labelpad=0)
+    ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE, pad=1)
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.6)
 
 
 def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None:
@@ -250,68 +266,78 @@ def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None
     readouts = {"combined": ["combined"], "individual": individual,
                 "both": ["combined"] + individual}[readout]
     runs = [compute_run(d, readouts, layer) for d in runs_dirs]
-    cfg = runs[0]["cfg"]
-    net_names = [n["name"] for n in cfg["model"]["networks"]]
-    styles = {"combined": ("-", 2.0)}
-    styles.update({f"net{i}": (STREAM_STYLES[i % len(STREAM_STYLES)], 1.4) for i in range(n_nets)})
-    if readout == "individual":
-        styles.update({f"net{i}": (STREAM_STYLES[i % len(STREAM_STYLES)], 2.0) for i in range(n_nets)})
+    net_labels = [NETWORK_LABELS[i] if i < len(NETWORK_LABELS) else f"net{i + 1}"
+                  for i in range(n_nets)]
+    styles = {"combined": "-"}
+    styles.update({f"net{i}": STREAM_STYLES[i % len(STREAM_STYLES)] for i in range(n_nets)})
+    edges = runs[0]["phase_edges"]
 
-    # (metric, stream index for the pairmate score, title, y label)
+    # (row, col, tag, metric, title, y label)
     panels = [
-        ("loss_sf", None, "Scene-face autoencoding loss", "Loss"),
-        ("loss_s", None, "Scene autoencoding loss", "Loss"),
-        ("acc_pm", None, "Face recall vs. pairmate face", "Accuracy"),
-        ("acc_npm", None, "Face recall vs. non-pairmate faces", "Accuracy"),
-    ] + [("pairmate", ni, f"Pairmate score ({net_names[ni]}, {layer})", "Pairmate score")
-         for ni in range(n_nets)]
-    n_cols = 3
-    n_rows = int(np.ceil(len(panels) / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.4 * n_cols, 2.7 * n_rows),
-                             sharex=True, squeeze=False)
-    phase_labels = ["scene-face", "scene"] * len(runs[0]["phase_edges"])
+        (0, 0, "a", "loss_sf", None, "Loss"),
+        (0, 1, "b", "acc_pm", "vs. pairmate face", "Accuracy"),
+        (0, 2, None, "acc_npm", "vs. non-pairmate face", None),
+        (1, 0, "c", "soft_pm", "vs. pairmate face", "Soft recall"),
+        (1, 1, None, "soft_npm", "vs. non-pairmate face", None),
+        (1, 2, "d", "pairmate", None, "Pairmate score"),
+    ]
 
-    for ax, (metric, ni, title, ylabel) in zip(axes.flat, panels):
+    plt.rcParams.update({"font.size": FONTSIZE, "mathtext.default": "regular"})
+    fig, grid = plt.subplots(
+        2, 3, figsize=(PANEL_MM[0] * 3 / 25.4, PANEL_MM[1] * 2 / 25.4), dpi=300,
+    )
+    axes = {}
+    for row, col, tag, metric, title, ylabel in panels:
+        ax = axes[metric] = grid[row, col]
         if metric == "pairmate":
-            plot_metric(ax, runs, (metric, ni))
-            ax.axhline(0, color="#5c5c58", linewidth=0.8, linestyle="--", zorder=1)
+            # one line style per stream, matching the per-stream readouts
+            for ni in range(n_nets):
+                plot_metric(ax, runs, (metric, ni), linestyle=styles[f"net{ni}"])
+            ax.axhline(0, color="lightgrey", linestyle="-", lw=0.6, zorder=1)
         else:
             for r in readouts:
-                ls, lw = styles[r]
-                plot_metric(ax, runs, (metric, r), linestyle=ls, linewidth=lw)
-        if metric == "acc_pm":
-            ax.axhline(0.5, color="#5c5c58", linewidth=0.8, linestyle="--", zorder=1)
+                plot_metric(ax, runs, (metric, r), linestyle=styles[r])
         if metric.startswith("acc"):
             ax.set_ylim(-0.03, 1.03)
-        if metric.startswith("loss"):
+            ax.set_yticks([0, 0.5, 1])
+        if metric in ("acc_pm", "soft_pm", "soft_npm"):
+            ax.axhline(0.5, color="grey", linestyle=":", lw=LINEWIDTH, zorder=1)
+        if metric == "loss_sf":
             ax.set_ylim(bottom=0)
-        shade_phases(ax, runs[0]["phase_edges"], phase_labels)
-        ax.set_title(title, pad=12)
-        ax.set_ylabel(ylabel)
-    for ax in axes.flat[len(panels):]:
-        ax.set_visible(False)
-    for ax in axes[-1]:
-        ax.set_xlabel("Epoch")
-    for ax in axes.flat:
-        ax.tick_params(labelbottom=True)
+        style_axis(ax, edges)
+        if row == 0:
+            ax.set_xlabel("")
+        if ylabel is not None:
+            ax.set_ylabel(ylabel, fontsize=FONTSIZE, labelpad=1)
+        if title is not None:
+            ax.set_title(title, fontsize=FONTSIZE, style="italic", pad=2)
+        if tag is not None:
+            ax.text(-0.42, 1.06, tag, transform=ax.transAxes, fontsize=FONTSIZE + 2,
+                    fontweight="bold", va="bottom", ha="left")
 
-    handles = [Line2D([], [], color=CONDITION_COLORS[c], label=CONDITION_LABELS[c]) for c in CONDITIONS]
-    if len(readouts) > 1 or readout == "individual":
-        readout_labels = {"combined": "Summed output"}
-        readout_labels.update({f"net{i}": f"{net_names[i]} alone" for i in range(n_nets)})
-        handles += [Line2D([], [], color="#5c5c58", linestyle=styles[r][0], label=readout_labels[r])
-                    for r in readouts]
-    fig.legend(handles=handles, loc="lower center", ncol=len(handles),
-               bbox_to_anchor=(0.5, -0.01))
+    # Soft recall: adaptive, but shared between the two panels.
+    soft_axes = [axes["soft_pm"], axes["soft_npm"]]
+    lo = min(ax.get_ylim()[0] for ax in soft_axes)
+    hi = max(ax.get_ylim()[1] for ax in soft_axes)
+    for ax in soft_axes:
+        ax.set_ylim(lo, hi)
 
-    model_name = os.path.basename(os.path.normpath(sweep_dir))
-    if model_name.isdigit():  # single run directory passed
-        model_name = os.path.basename(os.path.dirname(os.path.normpath(sweep_dir)))
-    objective = cfg["training"].get("objective", "summed")
-    fig.suptitle(f"{model_name} · {objective} objective · {len(runs)} seed(s)", y=1.0)
-    fig.tight_layout(rect=(0, 0.05, 1, 0.98))
+    fig.tight_layout(w_pad=0.8, h_pad=0.4, rect=(0, 0, 1, 0.93))
+
+    handles = [Line2D([], [], color=condition_color(c), lw=LINEWIDTH,
+                      label=FAVILA_LABELS[c.replace("_", " ")]) for c in CONDITIONS]
+    readout_labels = {"combined": "Summed"}
+    readout_labels.update({f"net{i}": net_labels[i].replace(" network", "") for i in range(n_nets)})
+    # Stream line styles are always needed for the pairmate-score panel.
+    shown = (["combined"] if "combined" in readouts and len(readouts) > 1 else []) + individual
+    handles += [Line2D([], [], color="black", linestyle=styles[r], lw=LINEWIDTH,
+                       label=readout_labels[r]) for r in shown]
+    fig.legend(handles=handles, loc="lower center", ncol=len(handles), fontsize=FONTSIZE,
+               frameon=False, bbox_to_anchor=(0.5, 0.94), handlelength=1.6,
+               columnspacing=1.2, borderaxespad=0)
+
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.01)
     plt.close(fig)
     print(f"Saved {out_path}")
 
