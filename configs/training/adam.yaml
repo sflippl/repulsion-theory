@@ -11,3 +11,4 @@ attention_lr: 1.0e-3
 attention_momentum: 0.9
 network_steps: 1
 attention_steps: 1
+objective: summed

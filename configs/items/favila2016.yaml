@@ -20,9 +20,9 @@ items:
       n_groups: 6
       n_items: 2
       dim: 128
+      # No face for no_face scenes: tasks using the face slot are restricted to
+      # the two face conditions (see the `subgroups` key in the dataset config).
       subgroups:
-        - name: no_face
-          magnitude: 0.
         - name: different_face
         - name: same_face
           corr_within: 1.

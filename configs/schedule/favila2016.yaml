@@ -1,6 +1,11 @@
 # @package _global_.schedule
+#
+# Eight epochs of scene-face autoencoding, then eight epochs of scene
+# autoencoding.
 
 component_type:
-  - autoencoding
-epochs: 8
+  - component_type: autoencoding
+    epochs: 8
+  - component_type: scene_input
+    epochs: 8
 batch_size: 1

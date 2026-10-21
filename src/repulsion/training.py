@@ -154,6 +154,9 @@ class TrainingConfig:
             in separate-attention mode.
         attention_steps: Number of attention-parameter update steps per batch
             in separate-attention mode.
+        objective: ``"summed"`` (default) fits the sum of all streams' outputs
+            to the target.  ``"independent"`` fits each stream's own output
+            to the target and sums the per-stream losses.
     """
     optimizer: str = "sgd"
     lr: float = 1e-3
@@ -164,6 +167,13 @@ class TrainingConfig:
     attention_momentum: float = 0.9
     network_steps: int = 1
     attention_steps: int = 1
+    objective: str = "summed"
+
+    def __post_init__(self) -> None:
+        if self.objective not in ("summed", "independent"):
+            raise ValueError(
+                f"objective must be 'summed' or 'independent'; got {self.objective!r}."
+            )
 
 
 @dataclass
@@ -207,6 +217,33 @@ def _build_optimizer(
     raise ValueError(f"Unknown optimizer '{name}'. Choose 'adam', 'adamw', or 'sgd'.")
 
 
+def _model_loss(
+    model: MultiNetwork,
+    x: torch.Tensor,
+    y: torch.Tensor,
+    weights: torch.Tensor,
+    sample_ids: Optional[torch.Tensor],
+    loss_spec: LossSpec,
+    objective: str,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Forward pass and loss under the configured objective.
+
+    With ``"independent"``, per-slot losses are summed across streams.
+    """
+    if objective == "summed":
+        return compute_loss(model(x, sample_ids), y, weights, loss_spec)
+
+    full_input = model.prepare_input(x, sample_ids)
+    total_loss: torch.Tensor = x.new_zeros(())
+    slot_losses: dict[str, float] = {}
+    for net in model.networks:
+        net_loss, net_slot_losses = compute_loss(net(full_input, sample_ids), y, weights, loss_spec)
+        total_loss = total_loss + net_loss
+        for k, v in net_slot_losses.items():
+            slot_losses[k] = slot_losses.get(k, 0.0) + v
+    return total_loss, slot_losses
+
+
 def _do_step(
     model: MultiNetwork,
     x: torch.Tensor,
@@ -225,8 +262,9 @@ def _do_step(
         # Joint training
         opt = optimizers[0]
         opt.zero_grad()
-        pred = model(x, sample_ids)
-        loss, slot_losses = compute_loss(pred, y, weights, loss_spec)
+        loss, slot_losses = _model_loss(
+            model, x, y, weights, sample_ids, loss_spec, config.objective
+        )
         loss.backward()
         opt.step()
     else:
@@ -236,16 +274,18 @@ def _do_step(
         for _ in range(config.network_steps):
             net_opt.zero_grad()
             attn_opt.zero_grad()
-            pred = model(x, sample_ids)
-            loss, slot_losses = compute_loss(pred, y, weights, loss_spec)
+            loss, slot_losses = _model_loss(
+                model, x, y, weights, sample_ids, loss_spec, config.objective
+            )
             loss.backward()
             net_opt.step()
 
         for _ in range(config.attention_steps):
             net_opt.zero_grad()
             attn_opt.zero_grad()
-            pred = model(x, sample_ids)
-            loss, slot_losses = compute_loss(pred, y, weights, loss_spec)
+            loss, slot_losses = _model_loss(
+                model, x, y, weights, sample_ids, loss_spec, config.objective
+            )
             loss.backward()
             attn_opt.step()
 
@@ -279,8 +319,9 @@ def _do_joint_step(
         x = inputs[:, ti, :]       # (batch, input_dim)
         y = outputs[:, ti, :]      # (batch, output_dim)
         w = task_weights[:, ti]    # (batch,)
-        pred = model(x, sample_ids)
-        task_loss, slot_losses = compute_loss(pred, y, w, loss_spec)
+        task_loss, slot_losses = _model_loss(
+            model, x, y, w, sample_ids, loss_spec, config.objective
+        )
         total_loss = total_loss + task_loss
         for k, v in slot_losses.items():
             all_slot_losses[k] = all_slot_losses.get(k, 0.0) + v
@@ -298,8 +339,10 @@ def _do_joint_step(
             # recompute to get fresh graph for each inner step
             total_loss_inner: torch.Tensor = inputs.new_zeros(())
             for ti in range(n_tasks):
-                pred = model(inputs[:, ti, :], sample_ids)
-                tl, _ = compute_loss(pred, outputs[:, ti, :], task_weights[:, ti], loss_spec)
+                tl, _ = _model_loss(
+                    model, inputs[:, ti, :], outputs[:, ti, :], task_weights[:, ti],
+                    sample_ids, loss_spec, config.objective,
+                )
                 total_loss_inner = total_loss_inner + tl
             total_loss_inner.backward()
             net_opt.step()
@@ -308,8 +351,10 @@ def _do_joint_step(
             attn_opt.zero_grad()
             total_loss_inner = inputs.new_zeros(())
             for ti in range(n_tasks):
-                pred = model(inputs[:, ti, :], sample_ids)
-                tl, _ = compute_loss(pred, outputs[:, ti, :], task_weights[:, ti], loss_spec)
+                tl, _ = _model_loss(
+                    model, inputs[:, ti, :], outputs[:, ti, :], task_weights[:, ti],
+                    sample_ids, loss_spec, config.objective,
+                )
                 total_loss_inner = total_loss_inner + tl
             total_loss_inner.backward()
             attn_opt.step()

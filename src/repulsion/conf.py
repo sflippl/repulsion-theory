@@ -146,6 +146,8 @@ class TrainingConf:
     attention_momentum: float = 0.9
     network_steps: int = 1
     attention_steps: int = 1
+    # "summed": fit the sum of streams; "independent": fit each stream separately
+    objective: str = "summed"
 
 
 # ---------------------------------------------------------------------------

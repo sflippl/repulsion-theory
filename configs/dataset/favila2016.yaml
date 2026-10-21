@@ -8,7 +8,9 @@ slots:
     face: face
     scene: scene
 tasks:
+  # Scene-face autoencoding (passive viewing + association test).
   - name: autoencoding
+    subgroups: [different_face, same_face]
     input:
       face:
         magnitude: 1.0
@@ -19,13 +21,16 @@ tasks:
         magnitude: 1.0
       scene:
         magnitude: 1.0
+  # Evaluation only: read out the associated face from the scene.
   - name: face_prediction
+    subgroups: [different_face, same_face]
     input:
       scene:
         magnitude: 1.0
     output:
       face:
         magnitude: 1.0
+  # Scene autoencoding (exposure task), including the no_face scenes.
   - name: scene_input
     input:
       scene:

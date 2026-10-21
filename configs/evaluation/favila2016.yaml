@@ -1,29 +1,40 @@
 # @package _global_.evaluation
 #
-# Example evaluation suite:
-#   1. Hidden representations from stream 0 at the output layer, logged at
-#      geometrically-spaced steps (factor 2 → steps 0, 1, 2, 4, 8, 16, …).
-#   2. Combined per-slot loss, logged at geometrically-spaced steps.
-#
-# Use eval_every_steps: N instead of eval_every_log_steps for fixed intervals.
+# Evaluated every 2 steps (192 scene-face + 288 scene steps in total).
+#   representations          scene-only input, all hidden layers of every stream
+#                            (pairmate score)
+#   output_autoencoding      scene-face autoencoding outputs (per-condition loss)
+#   output_scene             scene autoencoding outputs (per-condition loss)
+#   output_face_prediction   face slot given only the scene (association accuracy)
+#   loss_*                   aggregate per-slot losses
 
 evaluations:
   - name: representations
     task: scene_input
     save: representation
-    eval_every_log_steps: 1.01
+    eval_every_steps: 2
+
+  - name: output_autoencoding
+    task: autoencoding
+    save: output
+    eval_every_steps: 2
+
+  - name: output_scene
+    task: scene_input
+    save: output
+    eval_every_steps: 2
+
+  - name: output_face_prediction
+    task: face_prediction
+    save: output
+    eval_every_steps: 2
 
   - name: loss_autoencoding
     task: autoencoding
     save: loss
-    eval_every_log_steps: 1.01
+    eval_every_steps: 2
 
-  - name: loss_prediction
-    task: face_prediction
+  - name: loss_scene
+    task: scene_input
     save: loss
-    eval_every_log_steps: 1.01
-  
-  - name: output
-    task: face_prediction
-    save: output
-    eval_every_log_steps: 1.01
+    eval_every_steps: 2

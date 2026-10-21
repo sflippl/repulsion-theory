@@ -50,17 +50,24 @@ class RowIndex(NamedTuple):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _get_row_structure(item_set: ItemSet, item_type: str) -> list[RowIndex]:
+def _get_row_structure(
+    item_set: ItemSet,
+    item_type: str,
+    subgroups: Optional[tuple[str, ...]] = None,
+) -> list[RowIndex]:
     """Return the ordered list of RowIndexes for one item type.
 
     Order mirrors the generation order: subgroups in spec order, then
     groups 1..n_groups, then items 1..n_items within each group.
+    If *subgroups* is given, only rows from those subgroups are returned.
     """
     rows: list[RowIndex] = []
     seen_sgs: list[str] = []
     for it in item_set.by_type(item_type):
         if it.subgroup not in seen_sgs:
             seen_sgs.append(it.subgroup)
+    if subgroups is not None:
+        seen_sgs = [sg for sg in seen_sgs if sg in subgroups]
 
     for sg in seen_sgs:
         seen_groups: list[int] = []
@@ -77,6 +84,7 @@ def _validate_slot_compatibility(
     item_set: ItemSet,
     item_types: set[str],
     task_name: str,
+    subgroups: Optional[tuple[str, ...]] = None,
 ) -> None:
     """Ensure all active item types share the same (subgroup, group_id, item_id) structure.
 
@@ -87,7 +95,7 @@ def _validate_slot_compatibility(
         return
 
     structures: dict[str, list[RowIndex]] = {
-        t: _get_row_structure(item_set, t) for t in item_types
+        t: _get_row_structure(item_set, t, subgroups) for t in item_types
     }
     types = list(structures)
     ref_type = types[0]
@@ -199,9 +207,13 @@ class TaskDataset:
         if first_type is None:
             raise ValueError(f"Task '{task.name}' has no active slots in input or output.")
 
-        _validate_slot_compatibility(item_set, active_item_types, task.name)
+        _validate_slot_compatibility(item_set, active_item_types, task.name, task.subgroups)
 
-        self.rows: list[RowIndex] = _get_row_structure(item_set, first_type)
+        self.rows: list[RowIndex] = _get_row_structure(item_set, first_type, task.subgroups)
+        if not self.rows:
+            raise ValueError(
+                f"Task '{task.name}' has no rows (subgroups filter: {task.subgroups})."
+            )
         N = len(self.rows)
 
         # Precompute row structure metadata for classification label computation

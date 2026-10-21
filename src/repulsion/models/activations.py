@@ -28,6 +28,7 @@ class KWinnerTakesAll(nn.Module):
 
 ACTIVATIONS: dict[str, type[nn.Module]] = {
     "sigmoid":    nn.Sigmoid,
+    "tanh":       nn.Tanh,
     "relu":       nn.ReLU,
     "leaky_relu": nn.LeakyReLU,
     "kwta":       KWinnerTakesAll,
@@ -39,7 +40,7 @@ def build_activation(name: str, **kwargs) -> nn.Module:
     """Instantiate an activation module by name.
 
     Args:
-        name: One of ``'sigmoid'``, ``'relu'``, ``'leaky_relu'``,
+        name: One of ``'sigmoid'``, ``'tanh'``, ``'relu'``, ``'leaky_relu'``,
               ``'kwta'``, ``'identity'``.
         **kwargs: Forwarded to the constructor.
             - ``leaky_relu``: ``negative_slope`` (default 0.01)

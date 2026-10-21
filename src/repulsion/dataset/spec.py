@@ -11,6 +11,8 @@ task
     A named combination of active slots with per-slot configurations
     (magnitude and manipulation).  Slots not mentioned in a task are disabled
     (their portion of the concatenated vector is filled with ``off_value``).
+    An optional ``subgroups`` list restricts the task to rows from those
+    subgroups, so item types with different subgroups can share a task.
 
 manipulation
     How the raw item vector is used for a slot in a specific task:
@@ -71,6 +73,8 @@ class TaskSpec:
     name: str
     input_config: dict[str, Optional[SlotConfig]]
     output_config: dict[str, Optional[SlotConfig]]
+    # Restrict the task to rows from these subgroups (None → all subgroups).
+    subgroups: Optional[tuple[str, ...]] = None
 
 
 @dataclass
@@ -221,7 +225,13 @@ def parse_dataset_spec(slots: dict, tasks: list[dict], model_slots: dict | None 
             for label in out_labels
         }
 
-        parsed_tasks.append(TaskSpec(name=name, input_config=input_config, output_config=output_config))
+        raw_subgroups = task_dict.get("subgroups")
+        subgroups = tuple(raw_subgroups) if raw_subgroups is not None else None
+
+        parsed_tasks.append(TaskSpec(
+            name=name, input_config=input_config, output_config=output_config,
+            subgroups=subgroups,
+        ))
 
     # --- Validate and normalise model_slots ---
     resolved_model_slots: dict[str, dict[str, list[str]]] = {}

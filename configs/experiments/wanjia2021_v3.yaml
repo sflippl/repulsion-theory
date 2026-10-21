@@ -3,7 +3,7 @@ defaults:
   - override /dataset: wanjia2021
   - override /schedule: wanjia2021_nopred
   - override /items: wanjia2021_v3
-  - override /evaluation: favila2016
+  - override /evaluation: wanjia2021
 
 experiment_hparams:
   scene_corr_between: 0.
