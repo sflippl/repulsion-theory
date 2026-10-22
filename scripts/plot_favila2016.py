@@ -64,7 +64,7 @@ FAVILA_LABELS = {
 CONDITIONS = ["no_face", "different_face", "same_face"]
 NETWORK_LABELS = ["MSP network", "TSP network"]
 # combined readout solid; individual streams dashed / dash-dot
-STREAM_STYLES = ["--", "-.", ":"]
+STREAM_STYLES = ["--", (0, (1, 1))]
 PHASE_SHADE = "#efefef"
 
 FONTSIZE = 7

@@ -5,7 +5,5 @@
 
 component_type:
   - component_type: autoencoding
-    epochs: 8
-  - component_type: scene_input
-    epochs: 8
+    epochs: 10
 batch_size: 1
