@@ -1,19 +1,34 @@
 # @package _global_.evaluation
 #
-# Example evaluation suite:
-#   1. Hidden representations from stream 0 at the output layer, logged at
-#      geometrically-spaced steps (factor 2 → steps 0, 1, 2, 4, 8, 16, …).
-#   2. Combined per-slot loss, logged at geometrically-spaced steps.
-#
-# Use eval_every_steps: N instead of eval_every_log_steps for fixed intervals.
+# Evaluated every 8 steps (8 cycles × 3 tasks × 48 rows = 1152 steps).
+#   row_loss_autoencoding     color-object-face autoencoding, per-row loss
+#   row_loss_prediction_test  object-face autoencoding, per-row loss
+#   prediction                color read out from object + face (color error,
+#                             response away from competitor)
+#   loss_*                    aggregate per-slot losses
 
 evaluations:
-  - name: loss_autoencoding
+  - name: row_loss_autoencoding
     task: autoencoding
-    save: loss
-    eval_every_log_steps: 1.01
+    save: row_loss
+    eval_every_steps: 8
+
+  - name: row_loss_prediction_test
+    task: prediction_test
+    save: row_loss
+    eval_every_steps: 8
 
   - name: prediction
     task: prediction_evaluation
     save: output
-    eval_every_log_steps: 1.01
+    eval_every_steps: 8
+
+  - name: loss_autoencoding
+    task: autoencoding
+    save: loss
+    eval_every_steps: 8
+
+  - name: loss_prediction_test
+    task: prediction_test
+    save: loss
+    eval_every_steps: 8
