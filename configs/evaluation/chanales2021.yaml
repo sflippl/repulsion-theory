@@ -13,11 +13,6 @@ evaluations:
     save: loss
     eval_every_log_steps: 1.01
 
-  - name: loss_association
-    task: association
-    save: loss
-    eval_every_log_steps: 1.01
-
   - name: prediction
     task: prediction_evaluation
     save: output

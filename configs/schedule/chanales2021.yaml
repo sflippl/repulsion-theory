@@ -6,7 +6,7 @@ component_type:
   - component_type: prediction_test
     epochs: 1
     weight: ${experiment_hparams.prediction_test_weight}
-  - component_type: association
+  - component_type: autoencoding
     epochs: 1
     weight: ${experiment_hparams.association_weight}
 epochs: 8

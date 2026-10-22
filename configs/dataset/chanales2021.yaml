@@ -9,7 +9,6 @@ slots:
     color: color
     face: face
     object: object
-    face2: face
 tasks:
   - name: autoencoding
     input:
@@ -28,22 +27,13 @@ tasks:
         magnitude: 1.0
       object:
         magnitude: 1.0
-  - name: association
-    input:
-      color:
-        magnitude: 1.0
-        noise_std: 0.05
-      object:
-        magnitude: 1.0
-    output:
-      face2:
-        magnitude: 1.0
   - name: association_group
     input:
       face:
         magnitude: 1.0
+        manipulation: group
     output:
-      face2:
+      face:
         magnitude: 1.0
         manipulation: group
   - name: prediction_evaluation
