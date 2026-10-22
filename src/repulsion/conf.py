@@ -162,7 +162,7 @@ class EvalSpecConf:
     """
     name: str = MISSING
     task: str = MISSING
-    save: str = "output"           # "representation" | "output" | "loss"
+    save: str = "output"           # "representation" | "output" | "loss" | "row_loss"
     layer: Optional[str] = None    # None → all hidden layers (when save="representation")
     network: Optional[int] = None  # None → all networks (when save="representation")
     eval_every_steps: Optional[int] = None
