@@ -23,6 +23,11 @@ What can be saved
   Shape: ``(n_checkpoints, n_slots)``.  A companion ``*_meta.json`` records
   slot names.
 
+* ``"row_loss"`` — per-row, per-active-slot loss (squared error summed over
+  dimensions, or cross-entropy), written per-stream and combined.  Shape:
+  ``(n_checkpoints, n_rows, n_active_slots)``.  Much smaller than ``"output"``
+  when only per-condition losses are needed.
+
 Eval frequency
 --------------
 * ``eval_every_steps`` — evaluate whenever ``step % N == 0``.
@@ -92,9 +97,10 @@ class EvalSpec:
 def parse_eval_spec(d: dict) -> EvalSpec:
     """Build an :class:`EvalSpec` from a plain dict."""
     save = d.get("save", "output")
-    if save not in ("representation", "output", "loss"):
+    if save not in ("representation", "output", "loss", "row_loss"):
         raise ValueError(
-            f"EvalSpec 'save' must be 'representation', 'output', or 'loss'; got '{save!r}'."
+            "EvalSpec 'save' must be 'representation', 'output', 'loss', or 'row_loss'; "
+            f"got '{save!r}'."
         )
     # layer and network are optional for representation; None means "all"
     if "name" not in d:
@@ -336,6 +342,8 @@ class Evaluator:
         elif spec.save == "loss":
             # Loss path calls model.forward() which applies shared attention internally.
             self._run_loss(state, x, y, w, sample_ids)
+        elif spec.save == "row_loss":
+            self._run_row_loss(state, self.model.prepare_input(x, sample_ids), y, sample_ids)
 
     def _save_rows_once(self, spec_name: str, task_name: str) -> None:
         """Write {name}_rows.json the first time a probe runs (rows are constant)."""
@@ -479,6 +487,55 @@ class Evaluator:
         )
         state.arrays.setdefault("combined", []).append(row_c)
         meta = {"task": spec.task, "save": "loss", "slots": slot_names}
+        self._pending_meta[spec.name] = meta
+        if self.incremental:
+            _write_state(
+                self.output_dir, spec.name,
+                state.steps, state.arrays, meta,
+            )
+
+
+    def _run_row_loss(
+        self,
+        state: _EvalState,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        sample_ids: Optional[torch.Tensor],
+    ) -> None:
+        spec = state.spec
+        self._save_rows_once(spec.name, spec.task)
+        active_slots = [
+            slot for slot in self.loss_spec.slots
+            if not torch.isnan(y[:, slot.target_offset:slot.target_offset + slot.target_dim]).all()
+        ]
+
+        def per_row(pred: torch.Tensor) -> np.ndarray:
+            cols = []
+            for slot in active_slots:
+                p = pred[:, slot.pred_offset:slot.pred_offset + slot.pred_dim]
+                t = y[:, slot.target_offset:slot.target_offset + slot.target_dim]
+                if slot.loss_type == "mse":
+                    cols.append(((p - t) ** 2).sum(dim=-1))
+                else:
+                    cols.append(torch.nn.functional.cross_entropy(
+                        p, t[:, 0].long(), reduction="none"))
+            return np.array(torch.stack(cols, dim=-1).tolist(), dtype=np.float32)
+
+        n_nets = len(self.model.networks)
+        combined_pred: Optional[torch.Tensor] = None
+        for ni, net in enumerate(self.model.networks):
+            pred = net(x, sample_ids)
+            combined_pred = pred if combined_pred is None else combined_pred + pred
+            if n_nets > 1:
+                state.arrays.setdefault(f"net{ni}", []).append(per_row(pred))
+        state.arrays.setdefault("combined", []).append(per_row(combined_pred))
+
+        meta = {
+            "task": spec.task,
+            "save": "row_loss",
+            "n_networks": n_nets,
+            "slots": [s.label for s in active_slots],
+        }
         self._pending_meta[spec.name] = meta
         if self.incremental:
             _write_state(
