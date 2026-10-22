@@ -36,20 +36,33 @@ panels: ``combined`` (sum of streams), ``individual`` (each stream alone), or
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import sys
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import yaml
-from matplotlib.lines import Line2D
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from repulsion.schedule import build_training_schedule  # noqa: E402
+from plot_common import (
+    PANEL_MM_DEFAULT,
+    default_out_path,
+    find_runs,
+    label_axis,
+    legend_handles,
+    load_config,
+    load_outputs,
+    load_rows,
+    load_steps,
+    loss_by_condition,
+    condition_masks as _condition_masks,
+    phase_step_edges,
+    plot_conditions,
+    readout_setup,
+    reference_line,
+    save_figure,
+    setup_style,
+    share_ylim,
+    style_axis,
+    top_legend,
+)
 
 FAVILA_SG_COLORS = {
     'no face':        'grey',
@@ -62,83 +75,22 @@ FAVILA_LABELS = {
     'same face':      'Same',
 }
 CONDITIONS = ["no_face", "different_face", "same_face"]
-NETWORK_LABELS = ["MSP network", "TSP network"]
-# combined readout solid; individual streams dashed / dash-dot
-STREAM_STYLES = ["--", (0, (1, 1))]
-PHASE_SHADE = "#efefef"
-
-FONTSIZE = 7
-TICK_FONTSIZE = 6
-LINEWIDTH = 1.0
-PANEL_MM = (40, 34)
-
-
-# ── loading ──────────────────────────────────────────────────────────────────
-
-def find_runs(sweep_dir: str) -> list[str]:
-    """Seed run directories below *sweep_dir* (or *sweep_dir* itself)."""
-    marker = "representations_steps.npy"
-    if os.path.exists(os.path.join(sweep_dir, marker)):
-        return [sweep_dir]
-    runs = sorted(
-        os.path.join(sweep_dir, d) for d in os.listdir(sweep_dir)
-        if os.path.exists(os.path.join(sweep_dir, d, marker))
-    )
-    if not runs:
-        raise FileNotFoundError(f"No runs (containing {marker}) found in {sweep_dir}.")
-    return runs
-
-
-def load_config(run_dir: str) -> dict:
-    with open(os.path.join(run_dir, ".hydra", "config.yaml")) as f:
-        return yaml.safe_load(f)
-
-
-def load_rows(run_dir: str, probe: str) -> list[dict]:
-    with open(os.path.join(run_dir, f"{probe}_rows.json")) as f:
-        return json.load(f)
-
-
-def load_outputs(run_dir: str, probe: str, slot: str, readouts: list[str]) -> dict:
-    """{readout: (n_checkpoints, n_rows, dim)} predictions plus 'target' (n_rows, dim)."""
-    out = {r: np.load(os.path.join(run_dir, f"{probe}_{r}_{slot}.npy")) for r in readouts}
-    out["target"] = np.load(os.path.join(run_dir, f"{probe}_target_{slot}.npy"))
-    return out
+COLORS = {c: FAVILA_SG_COLORS[c.replace("_", " ")] for c in CONDITIONS}
+LABELS = {c: FAVILA_LABELS[c.replace("_", " ")] for c in CONDITIONS}
+PANEL_MM = PANEL_MM_DEFAULT
 
 
 def steps_to_epochs(run_dir: str, cfg: dict, steps: np.ndarray) -> tuple[np.ndarray, list[float]]:
     """Map global steps to cumulative epochs; also return phase boundaries in epochs."""
-    schedule = build_training_schedule(cfg["schedule"])
-    n_rows = {}
-    for fname in os.listdir(run_dir):
-        if fname.endswith("_meta.json") and os.path.exists(
-            os.path.join(run_dir, fname.replace("_meta.json", "_rows.json"))
-        ):
-            with open(os.path.join(run_dir, fname)) as f:
-                task = json.load(f)["task"]
-            n_rows[task] = len(load_rows(run_dir, fname[: -len("_meta.json")]))
-    step_edges, epoch_edges = [0], [0.0]
-    for phase in schedule.phases:
-        if phase.epochs is None or len(phase.tasks) != 1:
-            raise ValueError("Only single-task, epoch-based phases are supported.")
-        batch = phase.params.batch_size or n_rows[phase.tasks[0]]
-        steps_per_epoch = int(np.ceil(n_rows[phase.tasks[0]] / batch))
-        step_edges.append(step_edges[-1] + phase.epochs * steps_per_epoch)
-        epoch_edges.append(epoch_edges[-1] + phase.epochs)
+    phases, step_edges = phase_step_edges(run_dir, cfg)
+    epoch_edges = list(np.cumsum([0] + [p.epochs for p in phases]).astype(float))
     return np.interp(steps, step_edges, epoch_edges), epoch_edges
 
 
 # ── metrics ──────────────────────────────────────────────────────────────────
 
 def condition_masks(rows: list[dict]) -> dict[str, np.ndarray]:
-    sgs = np.array([r["subgroup"] for r in rows])
-    return {c: sgs == c for c in CONDITIONS if (sgs == c).any()}
-
-
-def loss_by_condition(slot_outputs: list[dict], readout: str, rows: list[dict]) -> dict:
-    """Summed-over-slots squared error, averaged over rows of each condition."""
-    per_row = sum(((o[readout] - o["target"][None]) ** 2).sum(-1) for o in slot_outputs)
-    return {c: per_row[:, m].mean(1) for c, m in condition_masks(rows).items()}
+    return _condition_masks(rows, CONDITIONS)
 
 
 def association_recall(face_out: dict, readout: str, rows: list[dict]) -> dict:
@@ -199,10 +151,10 @@ def compute_run(run_dir: str, readouts: list[str], layer: str) -> dict:
     n_nets = len(cfg["model"]["networks"])
     res = {"cfg": cfg, "n_nets": n_nets}
 
-    steps = np.load(os.path.join(run_dir, "representations_steps.npy"))
+    steps = load_steps(run_dir, "representations")
     res["epochs"], res["phase_edges"] = steps_to_epochs(run_dir, cfg, steps)
     for probe in ("output_autoencoding", "output_face_prediction"):
-        if not np.array_equal(np.load(os.path.join(run_dir, f"{probe}_steps.npy")), steps):
+        if not np.array_equal(load_steps(run_dir, probe), steps):
             raise ValueError(f"{probe} was evaluated at different steps than representations.")
 
     rows_sf = load_rows(run_dir, "output_autoencoding")
@@ -211,7 +163,7 @@ def compute_run(run_dir: str, readouts: list[str], layer: str) -> dict:
     fp = load_outputs(run_dir, "output_face_prediction", "face", readouts)
 
     for r in readouts:
-        res[("loss_sf", r)] = loss_by_condition(sf, r, rows_sf)
+        res[("loss_sf", r)] = loss_by_condition(sf, r, rows_sf, CONDITIONS)
         for metric, values in association_recall(fp, r, rows_fp).items():
             res[(metric, r)] = values
 
@@ -224,52 +176,12 @@ def compute_run(run_dir: str, readouts: list[str], layer: str) -> dict:
 
 # ── plotting ─────────────────────────────────────────────────────────────────
 
-def mean_sem(arrays: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
-    mat = np.stack(arrays)
-    sem = mat.std(0, ddof=1) / np.sqrt(len(mat)) if len(mat) > 1 else np.zeros(mat.shape[1])
-    return mat.mean(0), sem
-
-
-def condition_color(c: str) -> str:
-    return FAVILA_SG_COLORS[c.replace("_", " ")]
-
-
-def plot_metric(ax, runs: list[dict], key, linestyle: str = "-") -> None:
-    x = runs[0]["epochs"]
-    for c in CONDITIONS:
-        if c not in runs[0][key]:
-            continue
-        mean, sem = mean_sem([r[key][c] for r in runs])
-        ax.plot(x, mean, color=condition_color(c), linestyle=linestyle, lw=LINEWIDTH)
-        if sem.any():
-            ax.fill_between(x, mean - sem, mean + sem, color=condition_color(c),
-                            alpha=0.2, linewidth=0)
-
-
-def style_axis(ax, edges: list[float]) -> None:
-    """Shade every second training phase, fix x-limits, set paper fonts."""
-    for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
-        if i % 2 == 1:
-            ax.axvspan(lo, hi, color=PHASE_SHADE, zorder=0, linewidth=0)
-    ax.set_xlim(edges[0], edges[-1])
-    ax.set_xticks(edges)
-    ax.set_xlabel("Epoch", fontsize=FONTSIZE, labelpad=0)
-    ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE, pad=1)
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.6)
-
-
 def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None:
-    runs_dirs = find_runs(sweep_dir)
+    runs_dirs = find_runs(sweep_dir, "representations_steps.npy")
     n_nets = len(load_config(runs_dirs[0])["model"]["networks"])
-    individual = [f"net{i}" for i in range(n_nets)]
-    readouts = {"combined": ["combined"], "individual": individual,
-                "both": ["combined"] + individual}[readout]
+    readouts, styles, net_labels = readout_setup(n_nets, readout)
     runs = [compute_run(d, readouts, layer) for d in runs_dirs]
-    net_labels = [NETWORK_LABELS[i] if i < len(NETWORK_LABELS) else f"net{i + 1}"
-                  for i in range(n_nets)]
-    styles = {"combined": "-"}
-    styles.update({f"net{i}": STREAM_STYLES[i % len(STREAM_STYLES)] for i in range(n_nets)})
+    x = runs[0]["epochs"]
     edges = runs[0]["phase_edges"]
 
     # (row, col, tag, metric, title, y label)
@@ -282,7 +194,7 @@ def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None
         (1, 2, "d", "pairmate", None, "Pairmate score"),
     ]
 
-    plt.rcParams.update({"font.size": FONTSIZE, "mathtext.default": "regular"})
+    setup_style()
     fig, grid = plt.subplots(
         2, 3, figsize=(PANEL_MM[0] * 3 / 25.4, PANEL_MM[1] * 2 / 25.4), dpi=300,
     )
@@ -292,62 +204,30 @@ def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None
         if metric == "pairmate":
             # one line style per stream, matching the per-stream readouts
             for ni in range(n_nets):
-                plot_metric(ax, runs, (metric, ni), linestyle=styles[f"net{ni}"])
+                plot_conditions(ax, x, runs, (metric, ni), CONDITIONS, COLORS,
+                                linestyle=styles[f"net{ni}"])
             ax.axhline(0, color="lightgrey", linestyle="-", lw=0.6, zorder=1)
         else:
             for r in readouts:
-                plot_metric(ax, runs, (metric, r), linestyle=styles[r])
+                plot_conditions(ax, x, runs, (metric, r), CONDITIONS, COLORS,
+                                linestyle=styles[r])
         if metric.startswith("acc"):
             ax.set_ylim(-0.03, 1.03)
             ax.set_yticks([0, 0.5, 1])
         if metric in ("acc_pm", "soft_pm", "soft_npm"):
-            ax.axhline(0.5, color="grey", linestyle=":", lw=LINEWIDTH, zorder=1)
+            reference_line(ax, 0.5)
         if metric == "loss_sf":
             ax.set_ylim(bottom=0)
-        style_axis(ax, edges)
-        if row == 0:
-            ax.set_xlabel("")
-        if ylabel is not None:
-            ax.set_ylabel(ylabel, fontsize=FONTSIZE, labelpad=1)
-        if title is not None:
-            ax.set_title(title, fontsize=FONTSIZE, style="italic", pad=2)
-        if tag is not None:
-            ax.text(-0.42, 1.06, tag, transform=ax.transAxes, fontsize=FONTSIZE + 2,
-                    fontweight="bold", va="bottom", ha="left")
+        style_axis(ax, edges, shade_edges=edges, xlabel="Epoch" if row == 1 else None)
+        label_axis(ax, ylabel, title, tag)
 
     # Soft recall: adaptive, but shared between the two panels.
-    soft_axes = [axes["soft_pm"], axes["soft_npm"]]
-    lo = min(ax.get_ylim()[0] for ax in soft_axes)
-    hi = max(ax.get_ylim()[1] for ax in soft_axes)
-    for ax in soft_axes:
-        ax.set_ylim(lo, hi)
+    share_ylim([axes["soft_pm"], axes["soft_npm"]])
 
     fig.tight_layout(w_pad=0.8, h_pad=0.4, rect=(0, 0, 1, 0.93))
-
-    handles = [Line2D([], [], color=condition_color(c), lw=LINEWIDTH,
-                      label=FAVILA_LABELS[c.replace("_", " ")]) for c in CONDITIONS]
-    readout_labels = {"combined": "Summed"}
-    readout_labels.update({f"net{i}": net_labels[i].replace(" network", "") for i in range(n_nets)})
-    # Stream line styles are always needed for the pairmate-score panel.
-    shown = (["combined"] if "combined" in readouts and len(readouts) > 1 else []) + individual
-    handles += [Line2D([], [], color="black", linestyle=styles[r], lw=LINEWIDTH,
-                       label=readout_labels[r]) for r in shown]
-    fig.legend(handles=handles, loc="lower center", ncol=len(handles), fontsize=FONTSIZE,
-               frameon=False, bbox_to_anchor=(0.5, 0.94), handlelength=1.6,
-               columnspacing=1.2, borderaxespad=0)
-
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    fig.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.01)
-    plt.close(fig)
-    print(f"Saved {out_path}")
-
-
-def default_out_path(sweep_dir: str, readout: str, ext: str) -> str:
-    parts = os.path.normpath(sweep_dir).split(os.sep)
-    if parts[-1].isdigit():
-        parts = parts[:-1]
-    objective, model = parts[-2], parts[-1]
-    return os.path.join("figures", "favila2016", f"{model}_{objective}_{readout}.{ext}")
+    top_legend(fig, legend_handles(CONDITIONS, COLORS, LABELS, readouts, styles, net_labels,
+                                   always_show_streams=True))
+    save_figure(fig, out_path)
 
 
 def main() -> None:
@@ -363,7 +243,8 @@ def main() -> None:
     if args.out and len(args.sweep_dirs) > 1:
         parser.error("--out can only be used with a single sweep directory.")
     for d in args.sweep_dirs:
-        make_figure(d, args.readout, args.layer, args.out or default_out_path(d, args.readout, args.ext))
+        make_figure(d, args.readout, args.layer,
+                    args.out or default_out_path(d, args.readout, args.ext))
 
 
 if __name__ == "__main__":

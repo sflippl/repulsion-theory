@@ -1,24 +1,41 @@
 # @package _global_.evaluation
 #
-# Example evaluation suite:
-#   1. Hidden representations from stream 0 at the output layer, logged at
-#      geometrically-spaced steps (factor 2 → steps 0, 1, 2, 4, 8, 16, …).
-#   2. Combined per-slot loss, logged at geometrically-spaced steps.
+# As evaluation/chanales2021, plus the face-group association loss.
 #
-# Use eval_every_steps: N instead of eval_every_log_steps for fixed intervals.
+# (Lists replace rather than merge in Hydra, so the full list is repeated.)
 
 evaluations:
-  - name: loss_autoencoding
+  - name: row_loss_autoencoding
     task: autoencoding
-    save: loss
-    eval_every_log_steps: 1.01
+    save: row_loss
+    eval_every_steps: 8
 
-  - name: loss_association
+  - name: row_loss_prediction_test
+    task: prediction_test
+    save: row_loss
+    eval_every_steps: 8
+
+  - name: row_loss_association
     task: association_group
-    save: loss
-    eval_every_log_steps: 1.01
+    save: row_loss
+    eval_every_steps: 8
 
   - name: prediction
     task: prediction_evaluation
     save: output
-    eval_every_log_steps: 1.01
+    eval_every_steps: 8
+
+  - name: loss_autoencoding
+    task: autoencoding
+    save: loss
+    eval_every_steps: 8
+
+  - name: loss_prediction_test
+    task: prediction_test
+    save: loss
+    eval_every_steps: 8
+
+  - name: loss_association
+    task: association_group
+    save: loss
+    eval_every_steps: 8
