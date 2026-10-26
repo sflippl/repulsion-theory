@@ -9,5 +9,5 @@ component_type:
   - component_type: autoencoding
     epochs: 1
     weight: ${experiment_hparams.association_weight}
-epochs: 8
+epochs: 12
 batch_size: 1

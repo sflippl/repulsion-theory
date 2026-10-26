@@ -1,4 +1,4 @@
-MODELS=("complete_model_linear" "complete_model_relu" "complete_model_tanh")
+MODELS=("complete_model_linear")
 EXPERIMENTS=("chanales2017")
 
 for model in "${MODELS[@]}"; do

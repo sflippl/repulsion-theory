@@ -16,11 +16,12 @@ items:
         - name: high_sim
           corr_within: 0.9
         - name: med_sim
-          corr_within: 0.2
+          corr_within: 0.5
         - name: low_sim
-          corr_within: 0.1
+          corr_within: 0.3
     - name: face
       corr_between: ${experiment_hparams.face_corr}
+      corr_within: ${experiment_hparams.face_corr}
       n_groups: 6
       n_items: 2
       dim: 128
@@ -31,6 +32,7 @@ items:
         - name: low_sim
     - name: object
       corr_between: 0.
+      corr_within: 1.
       n_groups: 6
       n_items: 2
       dim: 128

@@ -18,7 +18,7 @@ tasks:
       face:
         magnitude: 1.0
       object:
-        magnitude: 1.0
+        magnitude: 0.2
     output:
       color:
         magnitude: 1.0
@@ -26,7 +26,7 @@ tasks:
       face:
         magnitude: 1.0
       object:
-        magnitude: 1.0
+        magnitude: 0.2
   - name: association_group
     input:
       face:
@@ -41,7 +41,7 @@ tasks:
       face:
         magnitude: 1.0
       object:
-        magnitude: 1.0
+        magnitude: 0.2
     output:
       color:
         magnitude: 1.0
@@ -50,9 +50,9 @@ tasks:
       face:
         magnitude: 1.0
       object:
-        magnitude: 1.0
+        magnitude: 0.2
     output:
       face:
         magnitude: 1.0
       object:
-        magnitude: 1.0
+        magnitude: 0.2
