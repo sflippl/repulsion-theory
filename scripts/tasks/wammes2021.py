@@ -14,7 +14,9 @@ superposition built with ``phi_out``/``magnitude_out``.
 Throughout training the individual items are probed (each alone in its own
 slot when ``separate_inputs``), and for each stream the
 correlation between the hidden representations of ``x_i`` and ``y_j`` is
-recorded.
+recorded.  For the summed output and each stream alone ("readouts") the loss
+on the training set and the recall of each probed item (is the output closer
+to the item than to its pairmate?) are recorded as well.
 
 Outputs (``results.npz`` in the run directory)
 ----------------------------------------------
@@ -23,6 +25,9 @@ corr_xy     (T, S, n, n)       corr(h(x_i), h(y_j)) per stream
 pair_corr   (T, S, n)          diagonal of corr_xy (pairmates)
 baseline    (T, S, n(n-1)/2)   upper triangle of corr_xy (non-pairmates)
 loss        (n_steps,)         training loss per update
+eval_loss   (T, R)             training-set loss per readout (summed, then each stream)
+recall_margin (T, R, 2n)       ||o - pairmate|| - ||o - item|| per readout and probed item
+                               (x_0, y_0, x_1, ...); > 0 when the item is recalled
 steps_per_epoch                updates per epoch (eval_steps / steps_per_epoch = epoch)
 stream_names, stream_sparse    per-stream name and whether it has the fixed kWTA projection
 rhos, items_x, items_y         stimulus ground truth
@@ -62,8 +67,8 @@ from repulsion.tasks import (
     TrainConfig,
     build_model,
     correlated_pairs,
-    make_pair_corr_eval,
-    pair_corr_arrays,
+    make_readout_eval,
+    readout_arrays,
     resolve_output_dir,
     save_results,
     seed_everything,
@@ -172,14 +177,16 @@ def main(cfg: WammesConfig) -> None:
     result = train(
         model, X, Y, train_cfg,
         probe=probe,
-        eval_fn=make_pair_corr_eval(cfg.stimuli.n_pairs, cfg.model.probe_layer),
+        eval_fn=make_readout_eval(cfg.stimuli.n_pairs, X, Y,
+                                  np.stack([items_x, items_y], axis=1).reshape(-1, cfg.stimuli.dim),
+                                  cfg.model.probe_layer),
         device=cfg.device,
     )
 
     save_results(
         output_dir,
         eval_steps=result.eval_steps,
-        **pair_corr_arrays(result.metrics),
+        **readout_arrays(result.metrics),
         loss=result.losses,
         steps_per_epoch=len(result.losses) // train_cfg.epochs,
         **stream_info(OmegaConf.to_container(cfg.model.networks, resolve=True)),

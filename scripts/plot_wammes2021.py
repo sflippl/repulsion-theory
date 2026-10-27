@@ -1,23 +1,33 @@
 """plot_wammes2021.py — summary figure for a Wammes sweep (mean ± SEM across seeds).
 
 Reads every ``*/results.npz`` below a sweep directory written by
-``scripts/tasks/wammes2021.py --multirun`` and produces one figure in the
+``scripts/tasks/wammes2021.py --multirun`` (see ``scripts/wammes2021.sh``; one
+sweep per training objective and model) and produces one figure in the
 style of ``plot_favila2016.py``:
 
-a. training loss per epoch
-b. pairmate similarity (correlation of the hidden representations) over
-   training in the MSP network, one line per input similarity ρ; the
-   non-pairmate baseline is shown in grey
-c. the same for the TSP network
-d. change in pairmate similarity relative to before training, as a function
-   of ρ, in the MSP (dashed) and TSP (dotted) network, at the final epoch or
-   at the epochs given by ``--epochs`` (darker = later)
+a. loss on the training set
+b. recall: proportion of items whose output is closer to the item itself
+   than to its pairmate, one line per input similarity ρ
+c. pairmate similarity (correlation of the hidden representations) over
+   training in the MSP network, one line per ρ; the non-pairmate baseline
+   is shown in grey
+d. the same for the TSP network
+e. change in pairmate similarity relative to before training, as a function
+   of ρ, in the MSP (dashed) and TSP (dotted) network, at the final epoch
+   (colored by ρ) or at the epochs given by ``--epochs`` (darker = later)
+f. pairmate similarity itself, same layout as e
+
+``--readout`` selects which output is evaluated in a and b: ``combined``
+(sum of streams, solid), ``individual`` (each stream alone, dashed/dotted),
+or ``both``.  Both rows span the same width.
 
 Usage
 -----
-    python scripts/plot_wammes2021.py data/wammes2021/online
-    python scripts/plot_wammes2021.py data/wammes2021/online --epochs 1 5 20 --logx
-    python scripts/plot_wammes2021.py data/wammes2021/online --out figures/wammes2021/online --ext pdf png
+    python scripts/plot_wammes2021.py data/wammes2021/summed/complete_model_linear
+    python scripts/plot_wammes2021.py data/wammes2021/*/* --readout both --ext pdf png
+    python scripts/plot_wammes2021.py data/wammes2021/independent/complete_model_linear --epochs 1 5 10 --logx
+
+Figures are written to ``figures/<experiment>/<model>_<objective>_<readout>.<ext>``.
 """
 from __future__ import annotations
 
@@ -27,6 +37,7 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.lines import Line2D
 
@@ -36,12 +47,15 @@ from plot_common import (
     PANEL_MM_DEFAULT,
     STREAM_STYLES,
     add_output_args,
+    check_output_args,
     label_axis,
+    reference_line,
     resolve_out_paths,
     save_figure,
     setup_style,
     share_ylim,
     style_axis,
+    sweep_parts,
     top_legend,
 )
 
@@ -51,6 +65,29 @@ RAMP = LinearSegmentedColormap.from_list("ordinal_blue", ["#86b6ef", "#3987e5", 
 # grey ramp over the compared epochs (panel d)
 EPOCH_RAMP = LinearSegmentedColormap.from_list("ordinal_grey", ["#b0b0ab", "#000000"])
 PANEL_MM = PANEL_MM_DEFAULT
+# Figure layout in mm: full page width, two rows of 22 mm high panels.
+FIG_MM = (180, 78)
+LEFT_MM, RIGHT_MM = 12, 10       # right margin holds the ρ colorbar
+GAP_MM = 13                      # between panels with their own y label
+PAIR_GAP_MM = 6                  # between the MSP and TSP panel of a pair
+ROW_H_MM = 22
+BOTTOM_Y_MM, TOP_Y_MM = 9, 9 + ROW_H_MM + 13
+LEGEND_MM = 5                    # legend baseline below the top edge
+TAG_MM = 11                      # panel tags left of the axes
+
+
+def _row_width(gaps: list[float], n: int) -> float:
+    """Panel width (mm) for *n* panels with *gaps* between them across the figure."""
+    return (FIG_MM[0] - LEFT_MM - RIGHT_MM - sum(gaps)) / n
+
+
+def _row(fig, y_mm: float, w_mm: float, gaps: list[float]) -> list:
+    axes, x = [], LEFT_MM
+    for i in range(len(gaps) + 1):
+        axes.append(fig.add_axes([x / FIG_MM[0], y_mm / FIG_MM[1],
+                                  w_mm / FIG_MM[0], ROW_H_MM / FIG_MM[1]]))
+        x += w_mm + (gaps[i] if i < len(gaps) else 0)
+    return axes
 
 
 # ── loading & stats ─────────────────────────────────────────────────────────
@@ -61,6 +98,8 @@ def load_runs(sweep_dir: str) -> dict:
         raise FileNotFoundError(f"No results.npz found below {sweep_dir}.")
     runs = [dict(np.load(f)) for f in files]
     ref = runs[0]
+    if "recall_margin" not in ref:
+        raise ValueError(f"{files[0]} has no per-readout evaluation; re-run scripts/tasks/wammes2021.py.")
     for f, r in zip(files, runs):
         if not np.array_equal(r["eval_steps"], ref["eval_steps"]) or len(r["loss"]) != len(ref["loss"]):
             raise ValueError(f"{f} has a different step/eval schedule; sweep mixes configs?")
@@ -73,6 +112,9 @@ def load_runs(sweep_dir: str) -> dict:
         "loss": np.stack([r["loss"] for r in runs]),            # (seeds, n_steps)
         "pair_corr": np.stack([r["pair_corr"] for r in runs]),  # (seeds, T, S, n)
         "baseline": np.stack([r["baseline"] for r in runs]),    # (seeds, T, S, m)
+        # readouts: summed output, then each stream alone
+        "eval_loss": np.stack([r["eval_loss"] for r in runs]),          # (seeds, T, R)
+        "recall_margin": np.stack([r["recall_margin"] for r in runs]),  # (seeds, T, R, 2n)
     }
 
 
@@ -97,6 +139,13 @@ def streams(data) -> list[tuple[int, str, object]]:
             for s in order]
 
 
+def readouts(data, readout: str) -> list[tuple[int, str, object]]:
+    """``(readout index, legend label, line style)``; index 0 is the summed output."""
+    summed = [(0, "Summed", "-")]
+    individual = [(s + 1, label.replace(" network", ""), style) for s, label, style in streams(data)]
+    return {"combined": summed, "individual": individual, "both": summed + individual}[readout]
+
+
 def _nearest_eval(data, epoch: float) -> int:
     target = epoch * data["steps_per_epoch"]
     t = int(np.argmin(np.abs(data["eval_steps"] - target)))
@@ -109,91 +158,148 @@ def _nearest_eval(data, epoch: float) -> int:
 
 # ── figure ──────────────────────────────────────────────────────────────────
 
-def make_figure(data, epochs: list[float], logx: bool, out_paths: list[str]) -> None:
+def plot_vs_rho(ax, rhos: np.ndarray, values: np.ndarray, colors: list | None, style, norm) -> None:
+    """Mean ± SEM over seeds of *values* (seeds, n_epochs, n) against ρ.
+
+    One curve per compared epoch, in *colors*; with ``colors=None`` (a single
+    epoch) each segment and marker takes the color of its ρ.
+    """
+    keep = rhos < 1.0
+    r = rhos[keep]
+    for k in range(values.shape[1]):
+        m, h = mean_sem(values[:, k, keep])
+        band_color = "black" if colors is None else colors[k]
+        ax.fill_between(r, m - h, m + h, color=band_color, alpha=0.2, linewidth=0)
+        if colors is None:
+            segments = np.stack([np.c_[r[:-1], m[:-1]], np.c_[r[1:], m[1:]]], axis=1)
+            ax.add_collection(LineCollection(
+                segments, colors=RAMP(norm((r[:-1] + r[1:]) / 2)), linestyles=style,
+                linewidths=LINEWIDTH, zorder=3))
+        else:
+            ax.plot(r, m, color=colors[k], linestyle=style, lw=LINEWIDTH, zorder=3)
+        ax.scatter(r, m, c=[RAMP(norm(v)) for v in r], s=6, edgecolors="white", linewidths=0.3,
+                   zorder=4)
+    ax.axhline(0, color="lightgrey", linestyle="-", lw=0.6, zorder=1)
+    style_axis(ax, [0, 0.5, 1], xlabel="Input similarity ρ")
+    ax.set_xlim(rhos.min() - 0.05, r.max() + 0.05)
+
+
+def make_figure(data, readout: str, epochs: list[float], logx: bool, out_paths: list[str]) -> None:
     spe = data["steps_per_epoch"]
     n_epochs = data["loss"].shape[1] // spe
     xticks = list(range(0, n_epochs + 1, max(1, n_epochs // 4)))
     rhos = data["rhos"]
     norm = Normalize(rhos.min(), rhos.max())
-
+    shown = readouts(data, readout)
     setup_style()
-    fig, axes = plt.subplots(1, 4, figsize=(PANEL_MM[0] * 4 / 25.4, PANEL_MM[1] / 25.4), dpi=300)
-    loss_ax, change_ax = axes[0], axes[3]
+    fig = plt.figure(figsize=(FIG_MM[0] / 25.4, FIG_MM[1] / 25.4), dpi=300)
+    # four panels per row over the same width (tight_layout cannot handle the
+    # mixed gaps, so the axes are placed in mm)
+    top_gaps = [GAP_MM, GAP_MM, PAIR_GAP_MM]
+    loss_ax, recall_ax, *sim_axes = _row(fig, TOP_Y_MM, _row_width(top_gaps, 4), top_gaps)
+    bottom_gaps = [PAIR_GAP_MM, GAP_MM, PAIR_GAP_MM]
+    bottom = _row(fig, BOTTOM_Y_MM, _row_width(bottom_gaps, 4), bottom_gaps)
+    change_axes, final_axes = bottom[:2], bottom[2:]
+    # constant tag offset in mm left of the axes
+    tag_x_top = -TAG_MM / _row_width(top_gaps, 4)
+    tag_x_bottom = -TAG_MM / _row_width(bottom_gaps, 4)
 
-    # a. loss per epoch
-    loss = data["loss"][:, : n_epochs * spe].reshape(data["n_seeds"], n_epochs, spe).mean(-1)
-    band(loss_ax, np.arange(1, n_epochs + 1), *mean_sem(loss), "black")
-    loss_ax.set_yscale("log")
-    style_axis(loss_ax, xticks)
-    label_axis(loss_ax, "Loss", None, "a")
-
-    # b, c. pairmate similarity over training
     x = data["eval_steps"] / spe
     if logx:
         x = x + 1 / spe
-    sim_axes = list(axes[1:3])
-    for ax, (s, label, _), tag in zip(sim_axes, streams(data), "bc"):
-        for i, rho in enumerate(rhos):
-            band(ax, x, *mean_sem(data["pair_corr"][:, :, s, i]), RAMP(norm(rho)))
-        band(ax, x, *mean_sem(data["baseline"][:, :, s].mean(-1)), BASELINE, linestyle="--")
+
+    def time_axis(ax):
         style_axis(ax, xticks)
         if logx:
             ax.set_xscale("log")
             ax.set_xlim(x[0], x[-1])
-        label_axis(ax, "Similarity" if tag == "b" else None, label, tag)
+
+    # a. loss and b. recall per readout
+    for r, _, style in shown:
+        band(loss_ax, x, *mean_sem(data["eval_loss"][:, :, r]), "black", linestyle=style)
+        # proportion of the two items of each pair that are recalled: (seeds, T, n)
+        margin = data["recall_margin"][:, :, r]
+        recall = (margin > 0).reshape(*margin.shape[:2], -1, 2).mean(-1)
+        for i, rho in enumerate(rhos):
+            band(recall_ax, x, *mean_sem(recall[:, :, i]), RAMP(norm(rho)), linestyle=style)
+    loss_ax.set_yscale("log")
+    time_axis(loss_ax)
+    label_axis(loss_ax, "Loss", None, "a", tag_x=tag_x_top)
+    recall_ax.set_ylim(-0.03, 1.03)
+    recall_ax.set_yticks([0, 0.5, 1])
+    reference_line(recall_ax, 0.5)
+    time_axis(recall_ax)
+    label_axis(recall_ax, "Recall", None, "b", tag_x=tag_x_top)
+
+    # c, d. pairmate similarity over training
+    for ax, (s, label, _), tag in zip(sim_axes, streams(data), "cd"):
+        for i, rho in enumerate(rhos):
+            band(ax, x, *mean_sem(data["pair_corr"][:, :, s, i]), RAMP(norm(rho)))
+        band(ax, x, *mean_sem(data["baseline"][:, :, s].mean(-1)), BASELINE, linestyle="--")
+        time_axis(ax)
+        # the TSP panel sits next to the MSP one, so its tag goes in the small gap
+        label_axis(ax, "Similarity" if tag == "c" else None, label, tag,
+                   tag_x=tag_x_top if tag == "c" else -(PAIR_GAP_MM - 1) / _row_width(top_gaps, 4))
     share_ylim(sim_axes)
 
-    # d. change relative to initialization
+    # e, f. change relative to initialization and similarity itself, against ρ
     idx = [_nearest_eval(data, e) for e in epochs]
-    colors = [EPOCH_RAMP(v) for v in np.linspace(0, 1, len(epochs))] if len(epochs) > 1 else ["black"]
-    keep = rhos < 1.0
-    for s, _, style in streams(data):
+    colors = [EPOCH_RAMP(v) for v in np.linspace(0, 1, len(epochs))] if len(epochs) > 1 else None
+    for i, (s, label, style) in enumerate(streams(data)):
         pc = data["pair_corr"][:, :, s]           # (seeds, T, n)
-        for t, c in zip(idx, colors):
-            m, h = mean_sem(pc[:, t] - pc[:, 0])
-            change_ax.fill_between(rhos[keep], (m - h)[keep], (m + h)[keep], color=c, alpha=0.2,
-                                   linewidth=0)
-            change_ax.plot(rhos[keep], m[keep], color=c, linestyle=style, lw=LINEWIDTH, zorder=3)
-            change_ax.scatter(rhos[keep], m[keep], c=[RAMP(norm(r)) for r in rhos[keep]], s=6,
-                              edgecolors="white", linewidths=0.3, zorder=4)
-    change_ax.axhline(0, color="lightgrey", linestyle="-", lw=0.6, zorder=1)
-    style_axis(change_ax, [0, 0.5, 1], xlabel="Input similarity ρ")
-    change_ax.set_xlim(rhos.min() - 0.05, rhos[keep].max() + 0.05)
-    label_axis(change_ax, "Δ Similarity", None, "d")
+        plot_vs_rho(change_axes[i], rhos, pc[:, idx] - pc[:, [0]], colors, style, norm)
+        plot_vs_rho(final_axes[i], rhos, pc[:, idx], colors, style, norm)
+        label_axis(change_axes[i], "Δ Similarity" if i == 0 else None, label,
+                   "e" if i == 0 else None, tag_x=tag_x_bottom)
+        label_axis(final_axes[i], "Similarity" if i == 0 else None, label,
+                   "f" if i == 0 else None, tag_x=tag_x_bottom)
+    share_ylim(change_axes)
+    share_ylim(final_axes)
+    for ax in (sim_axes[1], change_axes[1], final_axes[1]):
+        ax.tick_params(labelleft=False)  # shared with the MSP panel
 
-    fig.tight_layout(w_pad=0.8, rect=(0, 0, 0.95, 0.92))
-    # ρ color scale, right of panel d
-    cax = change_ax.inset_axes([1.06, 0.0, 0.05, 1.0])
+    # ρ color scale, right of the last panel
+    cax = final_axes[-1].inset_axes([1.06, 0.0, 0.05, 1.0])
     cbar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=RAMP), cax=cax)
     cbar.set_label("ρ", fontsize=plt.rcParams["font.size"], labelpad=1)
     cbar.ax.tick_params(labelsize=plt.rcParams["font.size"] - 1, width=0.6, length=2, pad=1)
     cbar.outline.set_linewidth(0.6)
 
     handles = [Line2D([], [], color=BASELINE, linestyle="--", lw=LINEWIDTH, label="Non-pairmates")]
-    handles += [Line2D([], [], color="black", linestyle=style, lw=LINEWIDTH,
-                       label=label.replace(" network", "")) for _, label, style in streams(data)]
-    if len(epochs) > 1:
+    # summed readout (when shown next to the streams), then the stream styles of e and f
+    styles = ([("Summed", "-")] if readout == "both" else []) + \
+        [(label.replace(" network", ""), style) for _, label, style in streams(data)]
+    handles += [Line2D([], [], color="black", linestyle=style, lw=LINEWIDTH, label=label)
+                for label, style in styles]
+    if colors is not None:
         handles += [Line2D([], [], color=c, lw=LINEWIDTH, label=f"Epoch {e:g}")
                     for e, c in zip(epochs, colors)]
-    top_legend(fig, handles, y=0.9)
+    top_legend(fig, handles, y=1 - LEGEND_MM / FIG_MM[1])
     save_figure(fig, out_paths)
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("sweep_dir")
+    p.add_argument("sweep_dirs", nargs="+",
+                   help="Sweep directories (data/<experiment>/<objective>/<model>).")
+    p.add_argument("--readout", choices=["combined", "individual", "both"], default="both",
+                   help="Output used for the loss and recall panels.")
     p.add_argument("--epochs", type=float, nargs="+", default=None,
-                   help="epochs to compare against initialization in panel d (default: final epoch)")
-    p.add_argument("--logx", action="store_true", help="log-scale epoch axis in the similarity panels")
+                   help="epochs shown in panels e and f (default: final epoch)")
+    p.add_argument("--logx", action="store_true", help="log-scale epoch axis in panels a-d")
     add_output_args(p)
     args = p.parse_args()
+    check_output_args(p, args)
 
-    data = load_runs(args.sweep_dir)
-    stem = os.path.join("figures", "wammes2021", os.path.basename(os.path.normpath(args.sweep_dir)))
-    final_epoch = data["eval_steps"][-1] / data["steps_per_epoch"]
-    print(f"{data['n_seeds']} seeds, {final_epoch:g} epochs, {data['steps_per_epoch']} steps/epoch")
-    make_figure(data, args.epochs or [final_epoch], args.logx,
-                resolve_out_paths(args.out, stem, args.ext))
+    for sweep_dir in args.sweep_dirs:
+        data = load_runs(sweep_dir)
+        experiment, objective, model = sweep_parts(sweep_dir)
+        stem = os.path.join("figures", experiment, f"{model}_{objective}_{args.readout}")
+        final_epoch = data["eval_steps"][-1] / data["steps_per_epoch"]
+        print(f"{sweep_dir}: {data['n_seeds']} seeds, {final_epoch:g} epochs, "
+              f"{data['steps_per_epoch']} steps/epoch")
+        make_figure(data, args.readout, args.epochs or [final_epoch], args.logx,
+                    resolve_out_paths(args.out, stem, args.ext))
 
 
 if __name__ == "__main__":
