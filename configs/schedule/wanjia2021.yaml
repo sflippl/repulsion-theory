@@ -2,7 +2,5 @@
 
 component_type:
   - autoencoding
-epochs: 100
-joint: true
-weights: [1.0]
+epochs: 12
 batch_size: 1

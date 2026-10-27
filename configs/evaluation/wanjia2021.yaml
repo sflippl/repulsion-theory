@@ -19,11 +19,11 @@ evaluations:
     eval_every_log_steps: 1.01
 
   - name: loss_prediction
-    task: face_prediction
+    task: object_prediction
     save: loss
     eval_every_log_steps: 1.01
   
   - name: output
-    task: face_prediction
+    task: object_prediction
     save: output
     eval_every_log_steps: 1.01

@@ -19,7 +19,7 @@ tasks:
         magnitude: 1.0
       scene:
         magnitude: 1.0
-  - name: face_prediction
+  - name: object_prediction
     input:
       scene:
         magnitude: 1.0

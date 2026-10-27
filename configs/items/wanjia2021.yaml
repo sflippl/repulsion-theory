@@ -6,7 +6,7 @@ items:
   items:
     - name: scene
       corr_between: ${experiment_hparams.scene_corr_between}
-      n_groups: 6
+      n_groups: 4
       n_items: 2
       dim: 128
       subgroups:
@@ -20,7 +20,7 @@ items:
           corr_within: ${experiment_hparams.scene_low_corr}
     - name: object
       corr_between: 0.
-      n_groups: 6
+      n_groups: 4
       n_items: 2
       dim: 128
       subgroups:
