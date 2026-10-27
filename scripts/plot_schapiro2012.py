@@ -73,7 +73,8 @@ def epochs_axis(data, logx: bool) -> np.ndarray:
     return (data["eval_steps"] + 1) / spe if logx else data["eval_steps"] / spe
 
 
-def plot_grid(settings: list[dict], out_dir: str, name: str, logx: bool, relative: bool) -> None:
+def plot_grid(settings: list[dict], out_dir: str, name: str, logx: bool, relative: bool,
+              exts: list[str]) -> None:
     n_streams = len(settings[0]["stream_sparse"])
     fig, axes = plt.subplots(
         len(settings), n_streams, figsize=(4.6 * n_streams, 2.6 * len(settings)),
@@ -104,7 +105,7 @@ def plot_grid(settings: list[dict], out_dir: str, name: str, logx: bool, relativ
         ax.set_ylabel(ylabel)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="outside upper center", ncol=len(labels))
-    save(fig, out_dir, name)
+    save(fig, out_dir, name, exts)
 
 
 def nearest_eval(data, step: int) -> int:
@@ -115,7 +116,7 @@ def nearest_eval(data, step: int) -> int:
     return t
 
 
-def plot_categories(settings: list[dict], out_dir: str, step: int | None) -> None:
+def plot_categories(settings: list[dict], out_dir: str, step: int | None, exts: list[str]) -> None:
     """Pairmate-similarity change at one step for the five stimulus categories (shuffled pairs + 4 conditions)."""
     n_streams = len(settings[0]["stream_sparse"])
     fig, axes = plt.subplots(
@@ -144,10 +145,10 @@ def plot_categories(settings: list[dict], out_dir: str, step: int | None) -> Non
         ax.set_ylabel("Δ pairmate similarity")
     shown = shown_steps.pop() if len(shown_steps) == 1 else None
     fig.suptitle(f"Step {shown}" if shown is not None else "Final step", x=0.0, ha="left", fontsize=10)
-    save(fig, out_dir, f"categories_step{shown}" if step is not None else "categories_final")
+    save(fig, out_dir, f"categories_step{shown}" if step is not None else "categories_final", exts)
 
 
-def plot_loss(settings: list[dict], out_dir: str) -> None:
+def plot_loss(settings: list[dict], out_dir: str, exts: list[str]) -> None:
     fig, ax = plt.subplots(figsize=(5.2, 3.4), constrained_layout=True)
     colors = [RAMP(v) for v in (np.linspace(0, 1, len(settings)) if len(settings) > 1 else [1.0])]
     for data, color in zip(settings, colors):
@@ -158,13 +159,15 @@ def plot_loss(settings: list[dict], out_dir: str) -> None:
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Training loss (MSE)")
     ax.legend(fontsize=8)
-    save(fig, out_dir, "loss")
+    save(fig, out_dir, "loss", exts)
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("sweep_dir")
     p.add_argument("--out", default=None, help="output directory (default: figures/schapiro2012/<sweep dir name>)")
+    p.add_argument("--ext", nargs="+", default=["pdf", "png"],
+                   help="one or more file formats (default: pdf png)")
     p.add_argument("--linx", action="store_true", help="linear instead of log epoch axis")
     p.add_argument("--step", type=int, default=None,
                    help="training step for the categories figure (nearest evaluation; default: final step)")
@@ -177,10 +180,10 @@ def main() -> None:
         print(f"{setting_label(d)}: {d['n_seeds']} seeds, "
               f"{d['eval_steps'][-1] / d['steps_per_epoch']:g} epochs, {d['steps_per_epoch']} steps/epoch")
 
-    plot_grid(settings, out_dir, "change_rel_baseline", logx=not args.linx, relative=True)
-    plot_grid(settings, out_dir, "change_raw", logx=not args.linx, relative=False)
-    plot_categories(settings, out_dir, args.step)
-    plot_loss(settings, out_dir)
+    plot_grid(settings, out_dir, "change_rel_baseline", logx=not args.linx, relative=True, exts=args.ext)
+    plot_grid(settings, out_dir, "change_raw", logx=not args.linx, relative=False, exts=args.ext)
+    plot_categories(settings, out_dir, args.step, args.ext)
+    plot_loss(settings, out_dir, args.ext)
 
 
 if __name__ == "__main__":

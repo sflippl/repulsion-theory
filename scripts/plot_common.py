@@ -238,11 +238,13 @@ def top_legend(fig, handles: list[Line2D], y: float = 0.94) -> None:
                columnspacing=1.2, borderaxespad=0)
 
 
-def save_figure(fig, out_path: str) -> None:
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    fig.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.01)
+def save_figure(fig, out_paths: list[str]) -> None:
+    """Save *fig* once per path (one per output format)."""
+    for out_path in out_paths:
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        fig.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.01)
+        print(f"Saved {out_path}")
     plt.close(fig)
-    print(f"Saved {out_path}")
 
 
 def sweep_parts(sweep_dir: str) -> tuple[str, str, str]:
@@ -253,6 +255,40 @@ def sweep_parts(sweep_dir: str) -> tuple[str, str, str]:
     return parts[-3], parts[-2], parts[-1]
 
 
-def default_out_path(sweep_dir: str, readout: str, ext: str) -> str:
+def default_out_stem(sweep_dir: str, readout: str) -> str:
+    """figures/<experiment>/<model>_<objective>_<readout> (no extension)."""
     experiment, objective, model = sweep_parts(sweep_dir)
-    return os.path.join("figures", experiment, f"{model}_{objective}_{readout}.{ext}")
+    return os.path.join("figures", experiment, f"{model}_{objective}_{readout}")
+
+
+def data_out_stem(sweep_dir: str, readout: str) -> str:
+    """figures/<experiment>/<rest of the sweep path>_<readout>, relative to data/.
+
+    For sweeps without an objective level (data/<experiment>/<model>).
+    """
+    parts = os.path.normpath(sweep_dir).split(os.sep)
+    if parts[-1].isdigit():
+        parts = parts[:-1]
+    rel = parts[parts.index("data") + 1:] if "data" in parts else parts[-2:]
+    return os.path.join("figures", rel[0], "_".join(rel[1:] + [readout]))
+
+
+def add_output_args(parser) -> None:
+    parser.add_argument("--out", default=None,
+                        help="Output path (only with a single sweep dir); its extension is "
+                             "replaced by --ext when given.")
+    parser.add_argument("--ext", nargs="+", default=None,
+                        help="One or more file formats, e.g. --ext pdf png (default: pdf, or "
+                             "the extension of --out).")
+
+
+def check_output_args(parser, args) -> None:
+    if args.out and len(args.sweep_dirs) > 1:
+        parser.error("--out can only be used with a single sweep directory.")
+
+
+def resolve_out_paths(out: str | None, default_stem: str, exts: list[str] | None) -> list[str]:
+    """One output path per format, from ``--out`` (if given) or *default_stem*."""
+    stem, own_ext = os.path.splitext(out) if out else (default_stem, "")
+    exts = exts or [own_ext.lstrip(".") or "pdf"]
+    return [f"{stem}.{e.lstrip('.')}" for e in exts]

@@ -9,14 +9,20 @@ high, light low).
 a. scene-object autoencoding loss
 b. object recall accuracy: the object read out from the scene alone is
    closer (Euclidean) to the scene's own object than to any other object
-c. pairmate score of the scenes (scene presented alone)
-d. pairmate score of the objects (object presented alone)
-e. lagged scene pairmate score, aligned to learning: for each pair, epoch 0
-   is the first epoch at which the recall accuracy of the pair reaches the
-   criterion (default: both objects recalled).  Similarities are computed
-   between a scene at epoch t and the other scenes at epoch t - 1 (averaged
-   over both directions); the score is the lagged pairmate similarity minus
-   the mean lagged similarity to the non-pairmates of the same condition.
+c. soft object recall: 1 - d_own / (d_own + d_comp), with d_comp the
+   distance to the nearest other object (0.5 = equidistant, > 0.5 exactly
+   when the strict test of b is passed)
+d. pairmate score of the scenes (scene presented alone)
+e. pairmate score of the objects (object presented alone)
+f. scene pairmate score relative to the insight moment: for each pair, the
+   insight epoch is the first epoch boundary at which the pair's soft recall
+   (mean of its two scenes) has gained at least ``--insight-frac`` (default
+   95%) of its maximal gain over epoch 0.  At offset k, similarities are
+   computed between the scenes at epoch insight + k and the scenes at the
+   insight epoch (averaged over both directions), so k = 0 is the ordinary
+   pairmate score at the insight moment; the score is the pairmate
+   similarity minus the mean similarity to the non-pairmates of the same
+   condition.
 
 Pairmate scores are the mean pairmate correlation minus the mean
 non-pairmate correlation within a condition, in the MSP (dashed) and TSP
@@ -25,12 +31,12 @@ non-pairmate correlation within a condition, in the MSP (dashed) and TSP
 Usage
 -----
     python scripts/plot_wanjia2021.py data/wanjia2021/complete_model_linear
-    python scripts/plot_wanjia2021.py data/wanjia2021*/* --readout both --criterion 1.0
+    python scripts/plot_wanjia2021.py data/wanjia2021*/* --readout both --insight-frac 0.9
 
 ``--readout`` selects which output is evaluated for the loss and accuracy
 panels: ``combined`` (sum of streams), ``individual`` (each stream alone), or
-``both``.  The learning criterion of panel e always uses
-``--criterion-readout`` (default: the summed output).
+``both``.  The insight moment of panel f always uses ``--insight-readout``
+(default: the summed output).
 """
 from __future__ import annotations
 
@@ -44,7 +50,10 @@ import numpy as np
 from plot_common import (
     LINEWIDTH,
     PANEL_MM_DEFAULT,
+    add_output_args,
     by_condition,
+    check_output_args,
+    data_out_stem,
     find_runs,
     label_axis,
     legend_handles,
@@ -56,6 +65,8 @@ from plot_common import (
     phase_step_edges,
     plot_conditions,
     readout_setup,
+    reference_line,
+    resolve_out_paths,
     row_loss_by_condition,
     save_figure,
     setup_style,
@@ -83,8 +94,12 @@ WIDTH_MM = 3 * 45
 
 # ── metrics ──────────────────────────────────────────────────────────────────
 
-def recall_correct(object_out: dict, readout: str) -> np.ndarray:
-    """(n_checkpoints, n_rows): read-out closer to the own object than to any other object."""
+def object_recall(object_out: dict, readout: str) -> tuple[np.ndarray, np.ndarray]:
+    """Strict and soft recall of the scene's object, each (n_checkpoints, n_rows).
+
+    The competitor is the nearest other object.  Strict: the read-out is
+    closer to the own object.  Soft: 1 - d_own / (d_own + d_comp).
+    """
     target = object_out["target"]
     objects, obj_idx = np.unique(np.round(target, 8), axis=0, return_inverse=True)
     obj_idx = obj_idx.ravel()
@@ -92,23 +107,29 @@ def recall_correct(object_out: dict, readout: str) -> np.ndarray:
     dist = np.linalg.norm(pred[:, :, None, :] - objects[None, None], axis=-1)  # (T, N, O)
     own = dist[:, np.arange(len(obj_idx)), obj_idx]
     dist[:, np.arange(len(obj_idx)), obj_idx] = np.inf
-    return own < dist.min(-1)
+    comp = dist.min(-1)
+    return own < comp, 1 - own / (own + comp)
 
 
-def lagged_pairmate(reps: np.ndarray, rows: list[dict], correct: np.ndarray,
-                    criterion: float, window: int) -> dict:
-    """Lagged pairmate score per condition, aligned to each pair's criterion epoch.
+def insight_epoch(soft: np.ndarray, frac: float) -> int | None:
+    """First epoch at which *soft* (n_epochs + 1,) has gained *frac* of its maximal gain."""
+    gain = soft - soft[0]
+    if not gain.max() > 0:
+        return None
+    return int(np.flatnonzero(gain >= frac * gain.max())[0])
 
-    *reps* (n_epochs + 1, N, D) and *correct* (n_epochs + 1, N) are sampled at
+
+def insight_pairmate(reps: np.ndarray, rows: list[dict], soft: np.ndarray,
+                     frac: float, window: int) -> dict:
+    """Pairmate score between each epoch and the pair's insight epoch, per condition.
+
+    *reps* (n_epochs + 1, N, D) and *soft* (n_epochs + 1, N) are sampled at
     the epoch boundaries.  Returns {condition: (2 * window + 1,)} averaged over
-    the pairs that reach the criterion (NaN where no pair contributes).
+    the pairs with an insight moment (NaN where no pair contributes).
     """
     z = reps - reps.mean(-1, keepdims=True)
     z = z / np.linalg.norm(z, axis=-1, keepdims=True)
-    lag = np.full((len(reps), len(rows), len(rows)), np.nan)
-    lag[1:] = np.einsum("tid,tjd->tij", z[1:], z[:-1])          # scene i at t, scene j at t - 1
-    lag = (lag + lag.transpose(0, 2, 1)) / 2
-
+    n_ep = len(reps)
     sgs = np.array([r["subgroup"] for r in rows])
     pair = np.array([f"{r['subgroup']}/{r['group_id']}" for r in rows])
     out = {}
@@ -117,13 +138,16 @@ def lagged_pairmate(reps: np.ndarray, rows: list[dict], correct: np.ndarray,
         for p in np.unique(pair[sgs == c]):
             i, j = np.flatnonzero(pair == p)
             others = np.flatnonzero((sgs == c) & (pair != p))
-            score = lag[:, i, j] - lag[:, [i, j]][:, :, others].mean((1, 2))
-            reached = np.flatnonzero(correct[:, [i, j]].mean(1) >= criterion)
-            if not len(reached):
+            t0 = insight_epoch(soft[:, [i, j]].mean(1), frac)
+            if t0 is None:
                 continue
-            epochs = reached[0] + np.arange(-window, window + 1)
-            valid = (epochs >= 0) & (epochs < len(reps))
-            aligned.append(np.where(valid, score[np.clip(epochs, 0, len(reps) - 1)], np.nan))
+            # scene a at epoch t vs. scene b at the insight epoch, both directions
+            cross = np.einsum("tid,jd->tij", z, z[t0])
+            cross = (cross + cross.transpose(0, 2, 1)) / 2
+            score = cross[:, i, j] - cross[:, [i, j]][:, :, others].mean((1, 2))
+            epochs = t0 + np.arange(-window, window + 1)
+            valid = (epochs >= 0) & (epochs < n_ep)
+            aligned.append(np.where(valid, score[np.clip(epochs, 0, n_ep - 1)], np.nan))
         if aligned:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)  # offsets without any pair
@@ -131,8 +155,8 @@ def lagged_pairmate(reps: np.ndarray, rows: list[dict], correct: np.ndarray,
     return out
 
 
-def compute_run(run_dir: str, readouts: list[str], layer: str, criterion: float,
-                criterion_readout: str, window: int) -> dict:
+def compute_run(run_dir: str, readouts: list[str], layer: str, insight_frac: float,
+                insight_readout: str, window: int) -> dict:
     cfg = load_config(run_dir)
     n_nets = len(cfg["model"]["networks"])
     res = {"cfg": cfg}
@@ -152,11 +176,13 @@ def compute_run(run_dir: str, readouts: list[str], layer: str, criterion: float,
     boundary = np.array([b[0] for b in boundary])
 
     rows = load_rows(run_dir, "output")
-    obj = load_outputs(run_dir, "output", "object", sorted(set(readouts) | {criterion_readout}))
+    obj = load_outputs(run_dir, "output", "object", sorted(set(readouts) | {insight_readout}))
     for r in readouts:
         res[("loss", r)] = row_loss_by_condition(run_dir, "row_loss_autoencoding", r, CONDITIONS)
-        res[("acc", r)] = by_condition(recall_correct(obj, r).astype(float), rows, CONDITIONS)
-    correct = recall_correct(obj, criterion_readout)[boundary]
+        correct, soft = object_recall(obj, r)
+        res[("acc", r)] = by_condition(correct.astype(float), rows, CONDITIONS)
+        res[("soft", r)] = by_condition(soft, rows, CONDITIONS)
+    soft_insight = object_recall(obj, insight_readout)[1][boundary]
 
     rows_scene = load_rows(run_dir, "representations")
     rows_obj = load_rows(run_dir, "representations_object")
@@ -167,8 +193,8 @@ def compute_run(run_dir: str, readouts: list[str], layer: str, criterion: float,
         objects = np.load(os.path.join(run_dir, f"representations_object_net{ni}_{layer}.npy"))
         res[("ps_scene", ni)] = pairmate_score(scenes, rows_scene, CONDITIONS)
         res[("ps_object", ni)] = pairmate_score(objects, rows_obj, CONDITIONS)
-        res[("lagged", ni)] = lagged_pairmate(scenes[boundary], rows_scene, correct,
-                                              criterion, window)
+        res[("insight", ni)] = insight_pairmate(scenes[boundary], rows_scene, soft_insight,
+                                                insight_frac, window)
     return res
 
 
@@ -189,12 +215,12 @@ def plot_aligned(ax, x: np.ndarray, runs: list[dict], key, linestyle) -> None:
                         alpha=0.2, linewidth=0)
 
 
-def make_figure(sweep_dir: str, readout: str, layer: str, criterion: float,
-                criterion_readout: str, window: int, out_path: str) -> None:
+def make_figure(sweep_dir: str, readout: str, layer: str, insight_frac: float,
+                insight_readout: str, window: int, out_paths: list[str]) -> None:
     runs_dirs = find_runs(sweep_dir, "representations_steps.npy")
     n_nets = len(load_config(runs_dirs[0])["model"]["networks"])
     readouts, styles, net_labels = readout_setup(n_nets, readout)
-    runs = [compute_run(d, readouts, layer, criterion, criterion_readout, window)
+    runs = [compute_run(d, readouts, layer, insight_frac, insight_readout, window)
             for d in runs_dirs]
     x = runs[0]["epochs"]
     n_epochs = runs[0]["n_epochs"]
@@ -202,19 +228,18 @@ def make_figure(sweep_dir: str, readout: str, layer: str, criterion: float,
 
     setup_style()
     fig = plt.figure(figsize=(WIDTH_MM / 25.4, PANEL_MM[1] * 2 / 25.4), dpi=300)
-    # Top row: behaviour (two wide panels); bottom row: representations.
-    gs = fig.add_gridspec(2, 6)
-    loss_ax, acc_ax = fig.add_subplot(gs[0, :3]), fig.add_subplot(gs[0, 3:])
-    scene_ax, obj_ax, lag_ax = (fig.add_subplot(gs[1, 2 * i: 2 * i + 2]) for i in range(3))
+    # Top row: behaviour; bottom row: representations.
+    grid = fig.subplots(2, 3)
+    (loss_ax, acc_ax, soft_ax), (scene_ax, obj_ax, lag_ax) = grid
 
     for r in readouts:
-        plot_conditions(loss_ax, x, runs, ("loss", r), CONDITIONS, WANJIA_COLORS,
-                        linestyle=styles[r])
-        plot_conditions(acc_ax, x, runs, ("acc", r), CONDITIONS, WANJIA_COLORS,
-                        linestyle=styles[r])
+        for ax, metric in ((loss_ax, "loss"), (acc_ax, "acc"), (soft_ax, "soft")):
+            plot_conditions(ax, x, runs, (metric, r), CONDITIONS, WANJIA_COLORS,
+                            linestyle=styles[r])
     loss_ax.set_ylim(bottom=0)
     acc_ax.set_ylim(-0.03, 1.03)
     acc_ax.set_yticks([0, 0.5, 1])
+    reference_line(soft_ax, 0.5)
 
     # one line style per stream, matching the per-stream readouts
     lag_x = np.arange(-window, window + 1)
@@ -224,41 +249,32 @@ def make_figure(sweep_dir: str, readout: str, layer: str, criterion: float,
                         linestyle=style)
         plot_conditions(obj_ax, x, runs, ("ps_object", ni), CONDITIONS, WANJIA_COLORS,
                         linestyle=style)
-        plot_aligned(lag_ax, lag_x, runs, ("lagged", ni), style)
+        plot_aligned(lag_ax, lag_x, runs, ("insight", ni), style)
     for ax in (scene_ax, obj_ax, lag_ax):
         ax.axhline(0, color="lightgrey", linestyle="-", lw=0.6, zorder=1)
     lag_ax.axvline(0, color="lightgrey", linestyle="-", lw=0.6, zorder=1)
     share_ylim([scene_ax, obj_ax])
 
     # constant tag offset in mm, matching the Favila figure (-0.42 of a 40 mm panel)
-    tag_x_wide = -0.42 * PANEL_MM[0] / (WIDTH_MM / 2)
     tag_x = -0.42 * PANEL_MM[0] / (WIDTH_MM / 3)
-    for ax, tag, title, ylabel, tx in (
-        (loss_ax, "a", None, "Loss", tag_x_wide),
-        (acc_ax, "b", None, "Object recall", tag_x_wide),
-        (scene_ax, "c", "Scenes", "Pairmate score", tag_x),
-        (obj_ax, "d", "Objects", None, tag_x),
-        (lag_ax, "e", "Scenes, 1-epoch lag", None, tag_x),
+    for ax, tag, title, ylabel in (
+        (loss_ax, "a", None, "Loss"),
+        (acc_ax, "b", None, "Object recall"),
+        (soft_ax, "c", None, "Soft recall"),
+        (scene_ax, "d", "Scenes", "Pairmate score"),
+        (obj_ax, "e", "Objects", None),
+        (lag_ax, "f", "Scenes vs. insight", None),
     ):
         style_axis(ax, xticks, xlabel="Epoch" if ax in (scene_ax, obj_ax) else None)
-        label_axis(ax, ylabel, title, tag, tag_x=tx)
+        label_axis(ax, ylabel, title, tag, tag_x=tag_x)
     lag_ax.set_xlim(-window, window)
     lag_ax.set_xticks(np.arange(-window, window + 1, max(1, window // 2)))
-    lag_ax.set_xlabel("Epochs from criterion", labelpad=0)
+    lag_ax.set_xlabel("Epochs from insight", labelpad=0)
 
     fig.tight_layout(w_pad=0.8, h_pad=0.6, rect=(0, 0, 1, 0.95))
     top_legend(fig, legend_handles(CONDITIONS, WANJIA_COLORS, WANJIA_LABELS, readouts, styles,
                                    net_labels, always_show_streams=True), y=0.95)
-    save_figure(fig, out_path)
-
-
-def default_out_path(sweep_dir: str, readout: str, ext: str) -> str:
-    """figures/<experiment>/<rest of the sweep path>_<readout>.<ext>, relative to data/."""
-    parts = os.path.normpath(sweep_dir).split(os.sep)
-    if parts[-1].isdigit():
-        parts = parts[:-1]
-    rel = parts[parts.index("data") + 1:] if "data" in parts else parts[-2:]
-    return os.path.join("figures", rel[0], "_".join(rel[1:] + [readout]) + f".{ext}")
+    save_figure(fig, out_paths)
 
 
 def main() -> None:
@@ -268,21 +284,19 @@ def main() -> None:
     parser.add_argument("--readout", choices=["combined", "individual", "both"], default="both",
                         help="Output used for the loss and accuracy panels.")
     parser.add_argument("--layer", default="hidden_0", help="Layer for the pairmate scores.")
-    parser.add_argument("--criterion", type=float, default=1.0,
-                        help="Recall accuracy of a pair (fraction of its two objects) that "
-                             "defines the learning epoch in panel e.")
-    parser.add_argument("--criterion-readout", default="combined",
-                        help="Output used for the learning criterion (combined, net0, ...).")
+    parser.add_argument("--insight-frac", type=float, default=0.95,
+                        help="Fraction of a pair's maximal soft-recall gain (over epoch 0) "
+                             "that defines its insight epoch in panel f.")
+    parser.add_argument("--insight-readout", default="combined",
+                        help="Output used for the insight moment (combined, net0, ...).")
     parser.add_argument("--window", type=int, default=4,
-                        help="Epochs shown before/after the criterion epoch in panel e.")
-    parser.add_argument("--out", default=None, help="Output path (only with a single sweep dir).")
-    parser.add_argument("--ext", default="pdf", help="File extension for default output paths.")
+                        help="Epochs shown before/after the insight epoch in panel f.")
+    add_output_args(parser)
     args = parser.parse_args()
-    if args.out and len(args.sweep_dirs) > 1:
-        parser.error("--out can only be used with a single sweep directory.")
+    check_output_args(parser, args)
     for d in args.sweep_dirs:
-        make_figure(d, args.readout, args.layer, args.criterion, args.criterion_readout,
-                    args.window, args.out or default_out_path(d, args.readout, args.ext))
+        make_figure(d, args.readout, args.layer, args.insight_frac, args.insight_readout,
+                    args.window, resolve_out_paths(args.out, data_out_stem(d, args.readout), args.ext))
 
 
 if __name__ == "__main__":

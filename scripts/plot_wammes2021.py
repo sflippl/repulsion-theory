@@ -95,16 +95,16 @@ def streams(data) -> list[tuple[int, str]]:
     return sorted(out, key=lambda t: data["stream_sparse"][t[0]])
 
 
-def save(fig, out_dir: str, name: str) -> None:
-    for ext in ("pdf", "png"):
+def save(fig, out_dir: str, name: str, exts: tuple[str, ...] = ("pdf", "png")) -> None:
+    for ext in exts:
         fig.savefig(os.path.join(out_dir, f"{name}.{ext}"), dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {os.path.join(out_dir, name)}.{{pdf,png}}")
+    print(f"wrote {os.path.join(out_dir, name)}.{{{','.join(exts)}}}")
 
 
 # ── figures ─────────────────────────────────────────────────────────────────
 
-def plot_loss(data, out_dir: str) -> None:
+def plot_loss(data, out_dir: str, exts: list[str]) -> None:
     spe = data["steps_per_epoch"]
     loss = data["loss"]
     n_epochs = loss.shape[1] // spe
@@ -117,10 +117,10 @@ def plot_loss(data, out_dir: str) -> None:
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Training loss (MSE)")
     ax.set_title(f"Loss (n = {data['n_seeds']} seeds)", loc="left")
-    save(fig, out_dir, "loss")
+    save(fig, out_dir, "loss", exts)
 
 
-def plot_similarity(data, out_dir: str, logx: bool) -> None:
+def plot_similarity(data, out_dir: str, logx: bool, exts: list[str]) -> None:
     epochs = data["eval_steps"] / data["steps_per_epoch"]
     x = epochs + 1 / data["steps_per_epoch"] if logx else epochs
     rhos = data["rhos"]
@@ -139,7 +139,7 @@ def plot_similarity(data, out_dir: str, logx: bool) -> None:
     axes[0].set_ylabel("Pairmate similarity (corr)")
     axes[0].legend(loc="best")
     fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=RAMP), ax=axes, label="Input similarity ρ")
-    save(fig, out_dir, "similarity")
+    save(fig, out_dir, "similarity", exts)
 
 
 def _nearest_eval(data, epoch: float) -> int:
@@ -152,7 +152,7 @@ def _nearest_eval(data, epoch: float) -> int:
     return t
 
 
-def plot_change(data, out_dir: str, epochs: list[float]) -> None:
+def plot_change(data, out_dir: str, epochs: list[float], exts: list[str]) -> None:
     rhos = data["rhos"]
     idx = [_nearest_eval(data, e) for e in epochs]
     colors = [RAMP(v) for v in (np.linspace(0, 1, len(epochs)) if len(epochs) > 1 else [1.0])] if len(epochs) > 1 else 'black'
@@ -170,7 +170,7 @@ def plot_change(data, out_dir: str, epochs: list[float]) -> None:
     axes[0].set_ylabel("Representational change")
     if len(epochs) > 1:
         axes[-1].legend(loc="best")
-    save(fig, out_dir, "change")
+    save(fig, out_dir, "change", exts)
 
 
 def main() -> None:
@@ -180,6 +180,8 @@ def main() -> None:
                    help="epochs to compare against initialization (default: final epoch)")
     p.add_argument("--out", default=None,
                    help="output directory (default: figures/wammes2021/<sweep dir name>)")
+    p.add_argument("--ext", nargs="+", default=["pdf", "png"],
+                   help="one or more file formats (default: pdf png)")
     p.add_argument("--logx", action="store_true", help="log-scale epoch axis in the similarity plot")
     args = p.parse_args()
 
@@ -188,9 +190,9 @@ def main() -> None:
     final_epoch = data["eval_steps"][-1] / data["steps_per_epoch"]
     print(f"{data['n_seeds']} seeds, {final_epoch:g} epochs, {data['steps_per_epoch']} steps/epoch")
 
-    plot_loss(data, out_dir)
-    plot_similarity(data, out_dir, args.logx)
-    plot_change(data, out_dir, args.epochs or [final_epoch])
+    plot_loss(data, out_dir, args.ext)
+    plot_similarity(data, out_dir, args.logx, args.ext)
+    plot_change(data, out_dir, args.epochs or [final_epoch], args.ext)
 
 
 if __name__ == "__main__":

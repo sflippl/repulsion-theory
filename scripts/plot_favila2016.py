@@ -43,7 +43,10 @@ import numpy as np
 
 from plot_common import (
     PANEL_MM_DEFAULT,
-    default_out_path,
+    add_output_args,
+    check_output_args,
+    condition_masks as _condition_masks,
+    default_out_stem,
     find_runs,
     label_axis,
     legend_handles,
@@ -52,12 +55,12 @@ from plot_common import (
     load_rows,
     load_steps,
     loss_by_condition,
-    condition_masks as _condition_masks,
     pairmate_score as _pairmate_score,
     phase_step_edges,
     plot_conditions,
     readout_setup,
     reference_line,
+    resolve_out_paths,
     save_figure,
     setup_style,
     share_ylim,
@@ -166,7 +169,7 @@ def compute_run(run_dir: str, readouts: list[str], layer: str) -> dict:
 
 # ── plotting ─────────────────────────────────────────────────────────────────
 
-def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None:
+def make_figure(sweep_dir: str, readout: str, layer: str, out_paths: list[str]) -> None:
     runs_dirs = find_runs(sweep_dir, "representations_steps.npy")
     n_nets = len(load_config(runs_dirs[0])["model"]["networks"])
     readouts, styles, net_labels = readout_setup(n_nets, readout)
@@ -217,7 +220,7 @@ def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None
     fig.tight_layout(w_pad=0.8, h_pad=0.4, rect=(0, 0, 1, 0.93))
     top_legend(fig, legend_handles(CONDITIONS, COLORS, LABELS, readouts, styles, net_labels,
                                    always_show_streams=True))
-    save_figure(fig, out_path)
+    save_figure(fig, out_paths)
 
 
 def main() -> None:
@@ -227,14 +230,12 @@ def main() -> None:
     parser.add_argument("--readout", choices=["combined", "individual", "both"], default="both",
                         help="Output used for loss and accuracy panels.")
     parser.add_argument("--layer", default="hidden_0", help="Layer for the pairmate score.")
-    parser.add_argument("--out", default=None, help="Output path (only with a single sweep dir).")
-    parser.add_argument("--ext", default="pdf", help="File extension for default output paths.")
+    add_output_args(parser)
     args = parser.parse_args()
-    if args.out and len(args.sweep_dirs) > 1:
-        parser.error("--out can only be used with a single sweep directory.")
+    check_output_args(parser, args)
     for d in args.sweep_dirs:
         make_figure(d, args.readout, args.layer,
-                    args.out or default_out_path(d, args.readout, args.ext))
+                    resolve_out_paths(args.out, default_out_stem(d, args.readout), args.ext))
 
 
 if __name__ == "__main__":

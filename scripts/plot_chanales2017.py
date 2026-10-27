@@ -30,6 +30,9 @@ import numpy as np
 
 from plot_common import (
     PANEL_MM_DEFAULT,
+    add_output_args,
+    check_output_args,
+    data_out_stem,
     find_runs,
     label_axis,
     legend_handles,
@@ -41,6 +44,7 @@ from plot_common import (
     plot_conditions,
     readout_setup,
     reference_line,
+    resolve_out_paths,
     save_figure,
     setup_style,
     style_axis,
@@ -115,7 +119,7 @@ def compute_run(run_dir: str, readouts: list[str], layer: str) -> dict:
 
 # ── plotting ─────────────────────────────────────────────────────────────────
 
-def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None:
+def make_figure(sweep_dir: str, readout: str, layer: str, out_paths: list[str]) -> None:
     runs_dirs = find_runs(sweep_dir, "representations_steps.npy")
     n_nets = len(load_config(runs_dirs[0])["model"]["networks"])
     readouts, styles, net_labels = readout_setup(n_nets, readout)
@@ -153,16 +157,8 @@ def make_figure(sweep_dir: str, readout: str, layer: str, out_path: str) -> None
     fig.tight_layout(w_pad=0.8, rect=(0, 0, 1, 0.92))
     top_legend(fig, legend_handles(SIM_CONDITIONS, C17_COLORS, C17_LABELS, readouts, styles,
                                    net_labels, always_show_streams=True), y=0.9)
-    save_figure(fig, out_path)
+    save_figure(fig, out_paths)
 
-
-def default_out_path(sweep_dir: str, readout: str, ext: str) -> str:
-    """figures/<experiment>/<rest of the sweep path>_<readout>.<ext>, relative to data/."""
-    parts = os.path.normpath(sweep_dir).split(os.sep)
-    if parts[-1].isdigit():
-        parts = parts[:-1]
-    rel = parts[parts.index("data") + 1:] if "data" in parts else parts[-2:]
-    return os.path.join("figures", rel[0], "_".join(rel[1:] + [readout]) + f".{ext}")
 
 
 def main() -> None:
@@ -172,14 +168,12 @@ def main() -> None:
     parser.add_argument("--readout", choices=["combined", "individual", "both"], default="both",
                         help="Output used for the loss and accuracy panels.")
     parser.add_argument("--layer", default="hidden_0", help="Layer for the similarity panel.")
-    parser.add_argument("--out", default=None, help="Output path (only with a single sweep dir).")
-    parser.add_argument("--ext", default="pdf", help="File extension for default output paths.")
+    add_output_args(parser)
     args = parser.parse_args()
-    if args.out and len(args.sweep_dirs) > 1:
-        parser.error("--out can only be used with a single sweep directory.")
+    check_output_args(parser, args)
     for d in args.sweep_dirs:
         make_figure(d, args.readout, args.layer,
-                    args.out or default_out_path(d, args.readout, args.ext))
+                    resolve_out_paths(args.out, data_out_stem(d, args.readout), args.ext))
 
 
 if __name__ == "__main__":
