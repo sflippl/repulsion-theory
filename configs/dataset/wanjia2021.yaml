@@ -33,3 +33,11 @@ tasks:
     output:
       scene:
         magnitude: 1.0
+  # evaluation only: object representations for the object pairmate score
+  - name: object_input
+    input:
+      object:
+        magnitude: 1.0
+    output:
+      object:
+        magnitude: 1.0

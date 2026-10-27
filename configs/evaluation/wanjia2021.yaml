@@ -1,29 +1,40 @@
 # @package _global_.evaluation
 #
-# Example evaluation suite:
-#   1. Hidden representations from stream 0 at the output layer, logged at
-#      geometrically-spaced steps (factor 2 → steps 0, 1, 2, 4, 8, 16, …).
-#   2. Combined per-slot loss, logged at geometrically-spaced steps.
-#
-# Use eval_every_steps: N instead of eval_every_log_steps for fixed intervals.
+# Evaluated every 8 steps (4× per epoch of 32 rows, so every epoch boundary is
+# a checkpoint for the lagged pairmate analysis):
+#   representations         hidden representations of the scenes alone
+#   representations_object  hidden representations of the objects alone
+#   row_loss_autoencoding   scene-object autoencoding, per-row loss
+#   output                  object read out from the scene (recall accuracy)
+#   loss_*                  aggregate per-slot losses
 
 evaluations:
   - name: representations
     task: scene_input
     save: representation
-    eval_every_log_steps: 1.01
+    eval_every_steps: 8
+
+  - name: representations_object
+    task: object_input
+    save: representation
+    eval_every_steps: 8
+
+  - name: row_loss_autoencoding
+    task: autoencoding
+    save: row_loss
+    eval_every_steps: 8
+
+  - name: output
+    task: object_prediction
+    save: output
+    eval_every_steps: 8
 
   - name: loss_autoencoding
     task: autoencoding
     save: loss
-    eval_every_log_steps: 1.01
+    eval_every_steps: 8
 
   - name: loss_prediction
     task: object_prediction
     save: loss
-    eval_every_log_steps: 1.01
-  
-  - name: output
-    task: object_prediction
-    save: output
-    eval_every_log_steps: 1.01
+    eval_every_steps: 8
