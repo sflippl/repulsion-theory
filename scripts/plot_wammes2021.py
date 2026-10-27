@@ -7,15 +7,14 @@ style of ``plot_favila2016.py``:
 
 a. loss on the training set
 b. recall: proportion of items whose output is closer to the item itself
-   than to its pairmate, one line per input similarity ρ
+   than to its pairmate, averaged over all input similarities ρ
 c. pairmate similarity (correlation of the hidden representations) over
-   training in the MSP network, one line per ρ; the non-pairmate baseline
-   is shown in grey
-d. the same for the TSP network
-e. change in pairmate similarity relative to before training, as a function
-   of ρ, in the MSP (dashed) and TSP (dotted) network, at the final epoch
-   (colored by ρ) or at the epochs given by ``--epochs`` (darker = later)
-f. pairmate similarity itself, same layout as e
+   training in the MSP and the TSP network (one panel each), one color per
+   ρ; the non-pairmate baseline is shown in grey
+d. change in pairmate similarity relative to before training, as a function
+   of ρ, in the MSP and TSP network, at the final epoch or at the epochs
+   given by ``--epochs`` (shades of green, darker = later)
+e. pairmate similarity itself, same layout as d
 
 ``--readout`` selects which output is evaluated in a and b: ``combined``
 (sum of streams, solid), ``individual`` (each stream alone, dashed/dotted),
@@ -37,7 +36,6 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.lines import Line2D
 
@@ -62,8 +60,9 @@ from plot_common import (
 BASELINE = "#8a8a85"
 # ordinal blue ramp over the input similarity ρ
 RAMP = LinearSegmentedColormap.from_list("ordinal_blue", ["#86b6ef", "#3987e5", "#1c5cab", "#0d366b"])
-# grey ramp over the compared epochs (panel d)
-EPOCH_RAMP = LinearSegmentedColormap.from_list("ordinal_grey", ["#b0b0ab", "#000000"])
+# green ramp over the compared epochs (panels d, e); a single epoch uses its dark end
+EPOCH_RAMP = LinearSegmentedColormap.from_list("ordinal_green", ["#a1d99b", "#41ab5d", "#00441b"])
+EPOCH_COLOR = "#238b45"
 PANEL_MM = PANEL_MM_DEFAULT
 # Figure layout in mm: full page width, two rows of 22 mm high panels.
 FIG_MM = (180, 78)
@@ -158,27 +157,15 @@ def _nearest_eval(data, epoch: float) -> int:
 
 # ── figure ──────────────────────────────────────────────────────────────────
 
-def plot_vs_rho(ax, rhos: np.ndarray, values: np.ndarray, colors: list | None, style, norm) -> None:
-    """Mean ± SEM over seeds of *values* (seeds, n_epochs, n) against ρ.
-
-    One curve per compared epoch, in *colors*; with ``colors=None`` (a single
-    epoch) each segment and marker takes the color of its ρ.
-    """
+def plot_vs_rho(ax, rhos: np.ndarray, values: np.ndarray, colors: list, style) -> None:
+    """Mean ± SEM over seeds of *values* (seeds, n_epochs, n) against ρ, one curve per epoch."""
     keep = rhos < 1.0
     r = rhos[keep]
-    for k in range(values.shape[1]):
+    for k, color in enumerate(colors):
         m, h = mean_sem(values[:, k, keep])
-        band_color = "black" if colors is None else colors[k]
-        ax.fill_between(r, m - h, m + h, color=band_color, alpha=0.2, linewidth=0)
-        if colors is None:
-            segments = np.stack([np.c_[r[:-1], m[:-1]], np.c_[r[1:], m[1:]]], axis=1)
-            ax.add_collection(LineCollection(
-                segments, colors=RAMP(norm((r[:-1] + r[1:]) / 2)), linestyles=style,
-                linewidths=LINEWIDTH, zorder=3))
-        else:
-            ax.plot(r, m, color=colors[k], linestyle=style, lw=LINEWIDTH, zorder=3)
-        ax.scatter(r, m, c=[RAMP(norm(v)) for v in r], s=6, edgecolors="white", linewidths=0.3,
-                   zorder=4)
+        ax.fill_between(r, m - h, m + h, color=color, alpha=0.2, linewidth=0)
+        ax.plot(r, m, color=color, linestyle=style, lw=LINEWIDTH, marker="o", ms=2,
+                mec="white", mew=0.3, zorder=3)
     ax.axhline(0, color="lightgrey", linestyle="-", lw=0.6, zorder=1)
     style_axis(ax, [0, 0.5, 1], xlabel="Input similarity ρ")
     ax.set_xlim(rhos.min() - 0.05, r.max() + 0.05)
@@ -217,11 +204,9 @@ def make_figure(data, readout: str, epochs: list[float], logx: bool, out_paths: 
     # a. loss and b. recall per readout
     for r, _, style in shown:
         band(loss_ax, x, *mean_sem(data["eval_loss"][:, :, r]), "black", linestyle=style)
-        # proportion of the two items of each pair that are recalled: (seeds, T, n)
-        margin = data["recall_margin"][:, :, r]
-        recall = (margin > 0).reshape(*margin.shape[:2], -1, 2).mean(-1)
-        for i, rho in enumerate(rhos):
-            band(recall_ax, x, *mean_sem(recall[:, :, i]), RAMP(norm(rho)), linestyle=style)
+        # proportion of all probed items that are recalled: (seeds, T)
+        recall = (data["recall_margin"][:, :, r] > 0).mean(-1)
+        band(recall_ax, x, *mean_sem(recall), "black", linestyle=style)
     loss_ax.set_yscale("log")
     time_axis(loss_ax)
     label_axis(loss_ax, "Loss", None, "a", tag_x=tag_x_top)
@@ -231,35 +216,34 @@ def make_figure(data, readout: str, epochs: list[float], logx: bool, out_paths: 
     time_axis(recall_ax)
     label_axis(recall_ax, "Recall", None, "b", tag_x=tag_x_top)
 
-    # c, d. pairmate similarity over training
-    for ax, (s, label, _), tag in zip(sim_axes, streams(data), "cd"):
-        for i, rho in enumerate(rhos):
-            band(ax, x, *mean_sem(data["pair_corr"][:, :, s, i]), RAMP(norm(rho)))
+    # c. pairmate similarity over training, one panel per stream
+    for i, (ax, (s, label, _)) in enumerate(zip(sim_axes, streams(data))):
+        for j, rho in enumerate(rhos):
+            band(ax, x, *mean_sem(data["pair_corr"][:, :, s, j]), RAMP(norm(rho)))
         band(ax, x, *mean_sem(data["baseline"][:, :, s].mean(-1)), BASELINE, linestyle="--")
         time_axis(ax)
-        # the TSP panel sits next to the MSP one, so its tag goes in the small gap
-        label_axis(ax, "Similarity" if tag == "c" else None, label, tag,
-                   tag_x=tag_x_top if tag == "c" else -(PAIR_GAP_MM - 1) / _row_width(top_gaps, 4))
+        label_axis(ax, "Similarity" if i == 0 else None, label, "c" if i == 0 else None,
+                   tag_x=tag_x_top)
     share_ylim(sim_axes)
 
-    # e, f. change relative to initialization and similarity itself, against ρ
+    # d, e. change relative to initialization and similarity itself, against ρ
     idx = [_nearest_eval(data, e) for e in epochs]
-    colors = [EPOCH_RAMP(v) for v in np.linspace(0, 1, len(epochs))] if len(epochs) > 1 else None
+    colors = [EPOCH_RAMP(v) for v in np.linspace(0, 1, len(epochs))] if len(epochs) > 1 else [EPOCH_COLOR]
     for i, (s, label, style) in enumerate(streams(data)):
         pc = data["pair_corr"][:, :, s]           # (seeds, T, n)
-        plot_vs_rho(change_axes[i], rhos, pc[:, idx] - pc[:, [0]], colors, style, norm)
-        plot_vs_rho(final_axes[i], rhos, pc[:, idx], colors, style, norm)
+        plot_vs_rho(change_axes[i], rhos, pc[:, idx] - pc[:, [0]], colors, style)
+        plot_vs_rho(final_axes[i], rhos, pc[:, idx], colors, style)
         label_axis(change_axes[i], "Δ Similarity" if i == 0 else None, label,
-                   "e" if i == 0 else None, tag_x=tag_x_bottom)
+                   "d" if i == 0 else None, tag_x=tag_x_bottom)
         label_axis(final_axes[i], "Similarity" if i == 0 else None, label,
-                   "f" if i == 0 else None, tag_x=tag_x_bottom)
+                   "e" if i == 0 else None, tag_x=tag_x_bottom)
     share_ylim(change_axes)
     share_ylim(final_axes)
     for ax in (sim_axes[1], change_axes[1], final_axes[1]):
         ax.tick_params(labelleft=False)  # shared with the MSP panel
 
-    # ρ color scale, right of the last panel
-    cax = final_axes[-1].inset_axes([1.06, 0.0, 0.05, 1.0])
+    # ρ color scale, right of panel c
+    cax = sim_axes[-1].inset_axes([1.06, 0.0, 0.05, 1.0])
     cbar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=RAMP), cax=cax)
     cbar.set_label("ρ", fontsize=plt.rcParams["font.size"], labelpad=1)
     cbar.ax.tick_params(labelsize=plt.rcParams["font.size"] - 1, width=0.6, length=2, pad=1)
@@ -271,7 +255,7 @@ def make_figure(data, readout: str, epochs: list[float], logx: bool, out_paths: 
         [(label.replace(" network", ""), style) for _, label, style in streams(data)]
     handles += [Line2D([], [], color="black", linestyle=style, lw=LINEWIDTH, label=label)
                 for label, style in styles]
-    if colors is not None:
+    if len(epochs) > 1:
         handles += [Line2D([], [], color=c, lw=LINEWIDTH, label=f"Epoch {e:g}")
                     for e, c in zip(epochs, colors)]
     top_legend(fig, handles, y=1 - LEGEND_MM / FIG_MM[1])
@@ -285,8 +269,8 @@ def main() -> None:
     p.add_argument("--readout", choices=["combined", "individual", "both"], default="both",
                    help="Output used for the loss and recall panels.")
     p.add_argument("--epochs", type=float, nargs="+", default=None,
-                   help="epochs shown in panels e and f (default: final epoch)")
-    p.add_argument("--logx", action="store_true", help="log-scale epoch axis in panels a-d")
+                   help="epochs shown in panels d and e (default: final epoch)")
+    p.add_argument("--logx", action="store_true", help="log-scale epoch axis in panels a-c")
     add_output_args(p)
     args = p.parse_args()
     check_output_args(p, args)
