@@ -1,4 +1,4 @@
-"""Plotting helpers for task-script sweeps (mean ± CI across seeds).
+"""Plotting helpers for task-script sweeps (mean ± SEM across seeds).
 
 Imports matplotlib lazily-safe for headless use; call :func:`setup_style`
 once before plotting.
@@ -14,7 +14,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
-from scipy import stats
 
 LINE = "#2a78d6"
 BASELINE = "#8a8a85"
@@ -63,14 +62,13 @@ def load_runs(files: list[str], stack: tuple[str, ...] = ("loss", "pair_corr", "
     return data
 
 
-def mean_ci(x: np.ndarray, axis: int = 0, level: float = 0.95):
-    """Mean and half-width of the t-based confidence interval along *axis*."""
-    n = x.shape[axis]
+def mean_sem(x: np.ndarray, axis: int = 0):
+    """Mean and standard error of the mean along *axis* (NaNs ignored)."""
+    n = np.sum(~np.isnan(x), axis=axis)
     m = np.nanmean(x, axis=axis)
-    if n < 2:
+    if x.shape[axis] < 2:
         return m, np.zeros_like(m)
-    sem = np.nanstd(x, axis=axis, ddof=1) / np.sqrt(n)
-    return m, sem * stats.t.ppf(0.5 + level / 2, n - 1)
+    return m, np.nanstd(x, axis=axis, ddof=1) / np.sqrt(n)
 
 
 def band(ax, x, m, h, color, label=None, **kw):
@@ -91,9 +89,9 @@ def per_epoch_loss(data) -> np.ndarray:
     return loss[:, : n_epochs * spe].reshape(loss.shape[0], n_epochs, spe).mean(-1)
 
 
-def save(fig, out_dir: str, name: str) -> None:
+def save(fig, out_dir: str, name: str, exts: tuple[str, ...] = ("pdf", "png")) -> None:
     os.makedirs(out_dir, exist_ok=True)
-    for ext in ("pdf", "png"):
+    for ext in exts:
         fig.savefig(os.path.join(out_dir, f"{name}.{ext}"), dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {os.path.join(out_dir, name)}.{{pdf,png}}")
+    print(f"wrote {os.path.join(out_dir, name)}.{{{','.join(exts)}}}")

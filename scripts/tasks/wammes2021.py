@@ -35,6 +35,8 @@ Usage
     python scripts/tasks/wammes2021.py stimuli.separate_inputs=false
     # notebook-style full-batch gradient descent
     python scripts/tasks/wammes2021.py training.batch_size=null training.momentum=0 training.lr=10 training.epochs=5000
+    # any model from configs/model (default: configs/model/complete_model_linear.yaml)
+    python scripts/tasks/wammes2021.py model=complete_model_relu
     # single stream: drop the kWTA stream
     python scripts/tasks/wammes2021.py 'model.networks=[{name: net1, hidden_sizes: [512], init_scale: 0.01}]'
     # seed sweep
@@ -55,6 +57,7 @@ import numpy as np
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
 
+from repulsion.conf import ModelConf
 from repulsion.tasks import (
     TrainConfig,
     build_model,
@@ -90,30 +93,16 @@ class StimuliConfig:
     separate_inputs: bool = True  # x and y in separate slots, summed after each stream's projection
 
 
-def _default_networks() -> list[dict]:
-    return [
-        {"name": "net1", "hidden_sizes": [512], "activation": "identity", "init_scale": 0.2},
-        {
-            "name": "net2",
-            "hidden_sizes": [512],
-            "activation": "identity",
-            "init_scale": 0.2,
-            "fixed_projection": True,
-            "fixed_projection_hidden_size": 2000,
-            "fixed_projection_activation": "kwta",
-            "fixed_projection_kwta_frac": 0.003,
-        },
-    ]
-
-
 @dataclass
-class ModelConfig:
-    networks: List[Any] = field(default_factory=_default_networks)
+class ModelConfig(ModelConf):
+    """A ``configs/model`` entry plus the layer whose representations are probed."""
     probe_layer: str = "hidden_0"
 
 
 @dataclass
 class WammesConfig:
+    # model: any configs/model/*.yaml, selected with ``model=<name>``
+    defaults: List[Any] = field(default_factory=lambda: ["_self_", {"model": "complete_model_linear"}])
     seed: int = 0
     device: str = "cpu"
     output_dir: Optional[str] = None
@@ -170,6 +159,8 @@ def main(cfg: WammesConfig) -> None:
     X, Y, probe, rhos, items_x, items_y = build_data(cfg.stimuli, rng)
     log.info("Training set: %d stimuli, dim %d.", *X.shape)
 
+    if cfg.model.shared_attention_layer:
+        raise ValueError("The shared attention layer is not supported by this task.")
     model = build_model(
         OmegaConf.to_container(cfg.model.networks, resolve=True),
         in_dim=cfg.stimuli.dim,

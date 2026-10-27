@@ -3,7 +3,7 @@
 Reads ``<sweep_dir>/<setting>/<seed>/results.npz`` as written by
 ``scripts/schapiro2012.sh`` (one setting per (phi_in, phi_out) pair; a
 directory that directly contains seed folders is treated as one setting) and
-produces, as in ``25_schapiro2012.ipynb`` (mean ± 95% CI across seeds; pairs
+produces, as in ``25_schapiro2012.ipynb`` (mean ± SEM across seeds; pairs
 averaged within each strong/weak × input-similarity condition):
 
 1. ``change_rel_baseline``  (pairmate − mean non-pairmate similarity), minus its
@@ -39,7 +39,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from repulsion.tasks.plotting import (
-    BASELINE, CATEGORICAL, INK_MUTED, RAMP, band, find_results, load_runs, mean_ci, per_epoch_loss, save,
+    BASELINE, CATEGORICAL, INK_MUTED, RAMP, band, find_results, load_runs, mean_sem, per_epoch_loss, save,
     setup_style, streams,
 )
 
@@ -89,10 +89,10 @@ def plot_grid(settings: list[dict], out_dir: str, name: str, logx: bool, relativ
                 pc = pc - base[..., None]
             change = pc - pc[:, [0]]
             if not relative:
-                m, h = mean_ci(base - base[:, [0]])
+                m, h = mean_sem(base - base[:, [0]])
                 band(ax, x, m, h, BASELINE, label="Shuffled pairs", linestyle="--", lw=1.5)
             for (label, idx), color in zip(conditions(data), CATEGORICAL):
-                m, h = mean_ci(change[:, :, idx].mean(-1))
+                m, h = mean_sem(change[:, :, idx].mean(-1))
                 band(ax, x, m, h, color, label=label)
             ax.axhline(0, color=INK_MUTED, lw=0.8)
             ax.set_title(f"{stream_label} · {setting_label(data)}", loc="left", fontsize=9.5)
@@ -134,7 +134,7 @@ def plot_categories(settings: list[dict], out_dir: str, step: int | None, exts: 
             cats += [(label, (pc[:, t, idx] - pc[:, 0, idx]).mean(-1), color)
                      for (label, idx), color in zip(conditions(data), CATEGORICAL)]
             for i, (_, values, color) in enumerate(cats):
-                m, h = mean_ci(values)
+                m, h = mean_sem(values)
                 ax.errorbar(i, m, yerr=h, fmt="o", color=color, ms=7, mec="white", mew=1, capsize=3, lw=1.5)
             ax.axhline(0, color=INK_MUTED, lw=0.8)
             ax.set_xticks(range(len(cats)), [label for label, _, _ in cats], rotation=35, ha="right")
@@ -153,7 +153,7 @@ def plot_loss(settings: list[dict], out_dir: str, exts: list[str]) -> None:
     colors = [RAMP(v) for v in (np.linspace(0, 1, len(settings)) if len(settings) > 1 else [1.0])]
     for data, color in zip(settings, colors):
         per_epoch = per_epoch_loss(data)
-        m, h = mean_ci(per_epoch)
+        m, h = mean_sem(per_epoch)
         band(ax, np.arange(1, per_epoch.shape[1] + 1), m, h, color, label=setting_label(data))
     ax.set_yscale("log")
     ax.set_xlabel("Epoch")

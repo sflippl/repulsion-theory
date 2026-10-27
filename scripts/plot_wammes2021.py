@@ -1,4 +1,4 @@
-"""plot_wammes2021.py — summary figures for a Wammes sweep (mean ± 95% CI across seeds).
+"""plot_wammes2021.py — summary figures for a Wammes sweep (mean ± SEM across seeds).
 
 Reads every ``*/results.npz`` below a sweep directory written by
 ``scripts/tasks/wammes2021.py --multirun`` and produces
@@ -28,7 +28,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, Normalize
-from scipy import stats
 
 LINE = "#2a78d6"
 BASELINE = "#8a8a85"
@@ -74,14 +73,13 @@ def load_runs(sweep_dir: str) -> dict:
     }
 
 
-def mean_ci(x: np.ndarray, axis: int = 0, level: float = 0.95):
-    """Mean and half-width of the t-based confidence interval along *axis*."""
-    n = x.shape[axis]
+def mean_sem(x: np.ndarray, axis: int = 0):
+    """Mean and standard error of the mean along *axis* (NaNs ignored)."""
+    n = np.sum(~np.isnan(x), axis=axis)
     m = np.nanmean(x, axis=axis)
-    if n < 2:
+    if x.shape[axis] < 2:
         return m, np.zeros_like(m)
-    sem = np.nanstd(x, axis=axis, ddof=1) / np.sqrt(n)
-    return m, sem * stats.t.ppf(0.5 + level / 2, n - 1)
+    return m, np.nanstd(x, axis=axis, ddof=1) / np.sqrt(n)
 
 
 def band(ax, x, m, h, color, label=None, **kw):
@@ -96,6 +94,7 @@ def streams(data) -> list[tuple[int, str]]:
 
 
 def save(fig, out_dir: str, name: str, exts: tuple[str, ...] = ("pdf", "png")) -> None:
+    os.makedirs(out_dir, exist_ok=True)
     for ext in exts:
         fig.savefig(os.path.join(out_dir, f"{name}.{ext}"), dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -110,7 +109,7 @@ def plot_loss(data, out_dir: str, exts: list[str]) -> None:
     n_epochs = loss.shape[1] // spe
     per_epoch = loss[:, : n_epochs * spe].reshape(loss.shape[0], n_epochs, spe).mean(-1)
     n_epochs = per_epoch.shape[1]
-    m, h = mean_ci(per_epoch)
+    m, h = mean_sem(per_epoch)
     fig, ax = plt.subplots(figsize=(4.5, 3.2))
     band(ax, np.arange(1, n_epochs + 1), m, h, LINE)
     ax.set_yscale("log")
@@ -128,9 +127,9 @@ def plot_similarity(data, out_dir: str, logx: bool, exts: list[str]) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(9.5, 3.4), sharey=True, constrained_layout=True)
     for ax, (s, label) in zip(axes, streams(data)):
         for i, rho in enumerate(rhos):
-            m, h = mean_ci(data["pair_corr"][:, :, s, i])
+            m, h = mean_sem(data["pair_corr"][:, :, s, i])
             band(ax, x, m, h, RAMP(norm(rho)))
-        m, h = mean_ci(data["baseline"][:, :, s].mean(-1))
+        m, h = mean_sem(data["baseline"][:, :, s].mean(-1))
         band(ax, x, m, h, BASELINE, label="Non-pairmates", linestyle="--", lw=1.5)
         ax.set_title(label, loc="left")
         ax.set_xlabel("Epoch")
@@ -160,7 +159,7 @@ def plot_change(data, out_dir: str, epochs: list[float], exts: list[str]) -> Non
     for ax, (s, label) in zip(axes, streams(data)):
         pc = data["pair_corr"][:, :, s]           # (seeds, T, n)
         for e, t, c in zip(epochs, idx, colors):
-            m, h = mean_ci(pc[:, t] - pc[:, 0])
+            m, h = mean_sem(pc[:, t] - pc[:, 0])
             filt = rhos < 1.0
             ax.fill_between(rhos[filt], (m - h)[filt], (m + h)[filt], color=c, alpha=0.2, lw=0)
             ax.plot(rhos[filt], m[filt], color=c, marker="o", ms=5, mec="white", mew=1, label=f"Epoch {e:g}")

@@ -6,7 +6,8 @@
 #   SEEDS=0,1,2 NAME=test bash scripts/schapiro2012.sh   # fewer seeds, different output folder
 #
 # stimuli.phi_out=null ties phi_out = 1 - phi_in, so all settings go out as one sweep.
-# Extra Hydra overrides are passed through (e.g. training.epochs=20). Results land in
+# Extra Hydra overrides are passed through (e.g. training.epochs=20, or any model from
+# configs/model such as model=complete_model_relu; default complete_model_linear). Results land in
 #   data/schapiro2012/$NAME/phi_in_<phi_in>/<seed>/results.npz
 # Plot afterwards with
 #   python scripts/plot_schapiro2012.py data/schapiro2012/$NAME
