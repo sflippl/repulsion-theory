@@ -16,8 +16,10 @@ d. pairmate score of the scenes (scene presented alone)
 e. pairmate score of the objects (object presented alone)
 f. scene pairmate score relative to the insight moment: for each pair, the
    insight epoch is the first epoch boundary at which the pair's soft recall
-   (mean of its two scenes) has gained at least ``--insight-frac`` (default
-   95%) of its maximal gain over epoch 0.  At offset k, similarities are
+   (mean of its two scenes) reaches ``--insight-threshold`` (default 0.55;
+   ``--insight-mode absolute``) or has gained at least ``--insight-frac``
+   (default 95%) of its maximal gain over epoch 0 (``--insight-mode
+   relative``).  Pairs without an insight moment are left out.  At offset k, similarities are
    computed between the scenes at epoch insight + k and the scenes at the
    insight epoch (averaged over both directions), so k = 0 is the ordinary
    pairmate score at the insight moment; the score is the pairmate
@@ -31,7 +33,8 @@ non-pairmate correlation within a condition, in the MSP (dashed) and TSP
 Usage
 -----
     python scripts/plot_wanjia2021.py data/wanjia2021/complete_model_linear
-    python scripts/plot_wanjia2021.py data/wanjia2021*/* --readout both --insight-frac 0.9
+    python scripts/plot_wanjia2021.py data/wanjia2021*/* --readout both --insight-threshold 0.6
+    python scripts/plot_wanjia2021.py data/wanjia2021/* --insight-mode relative --insight-frac 0.9
 
 ``--readout`` selects which output is evaluated for the loss and accuracy
 panels: ``combined`` (sum of streams), ``individual`` (each stream alone), or
@@ -111,16 +114,24 @@ def object_recall(object_out: dict, readout: str) -> tuple[np.ndarray, np.ndarra
     return own < comp, 1 - own / (own + comp)
 
 
-def insight_epoch(soft: np.ndarray, frac: float) -> int | None:
-    """First epoch at which *soft* (n_epochs + 1,) has gained *frac* of its maximal gain."""
-    gain = soft - soft[0]
-    if not gain.max() > 0:
-        return None
-    return int(np.flatnonzero(gain >= frac * gain.max())[0])
+def insight_epoch(soft: np.ndarray, mode: str, value: float) -> int | None:
+    """First epoch at which *soft* (n_epochs + 1,) reaches the insight criterion.
+
+    ``mode="absolute"``: soft recall >= *value*.  ``mode="relative"``: the
+    gain over epoch 0 is at least *value* times the maximal gain.
+    """
+    if mode == "absolute":
+        reached = np.flatnonzero(soft >= value)
+    else:
+        gain = soft - soft[0]
+        if not gain.max() > 0:
+            return None
+        reached = np.flatnonzero(gain >= value * gain.max())
+    return int(reached[0]) if len(reached) else None
 
 
 def insight_pairmate(reps: np.ndarray, rows: list[dict], soft: np.ndarray,
-                     frac: float, window: int) -> dict:
+                     insight: tuple[str, float], window: int) -> dict:
     """Pairmate score between each epoch and the pair's insight epoch, per condition.
 
     *reps* (n_epochs + 1, N, D) and *soft* (n_epochs + 1, N) are sampled at
@@ -138,7 +149,7 @@ def insight_pairmate(reps: np.ndarray, rows: list[dict], soft: np.ndarray,
         for p in np.unique(pair[sgs == c]):
             i, j = np.flatnonzero(pair == p)
             others = np.flatnonzero((sgs == c) & (pair != p))
-            t0 = insight_epoch(soft[:, [i, j]].mean(1), frac)
+            t0 = insight_epoch(soft[:, [i, j]].mean(1), *insight)
             if t0 is None:
                 continue
             # scene a at epoch t vs. scene b at the insight epoch, both directions
@@ -155,7 +166,7 @@ def insight_pairmate(reps: np.ndarray, rows: list[dict], soft: np.ndarray,
     return out
 
 
-def compute_run(run_dir: str, readouts: list[str], layer: str, insight_frac: float,
+def compute_run(run_dir: str, readouts: list[str], layer: str, insight: tuple[str, float],
                 insight_readout: str, window: int) -> dict:
     cfg = load_config(run_dir)
     n_nets = len(cfg["model"]["networks"])
@@ -194,7 +205,7 @@ def compute_run(run_dir: str, readouts: list[str], layer: str, insight_frac: flo
         res[("ps_scene", ni)] = pairmate_score(scenes, rows_scene, CONDITIONS)
         res[("ps_object", ni)] = pairmate_score(objects, rows_obj, CONDITIONS)
         res[("insight", ni)] = insight_pairmate(scenes[boundary], rows_scene, soft_insight,
-                                                insight_frac, window)
+                                                insight, window)
     return res
 
 
@@ -215,12 +226,12 @@ def plot_aligned(ax, x: np.ndarray, runs: list[dict], key, linestyle) -> None:
                         alpha=0.2, linewidth=0)
 
 
-def make_figure(sweep_dir: str, readout: str, layer: str, insight_frac: float,
+def make_figure(sweep_dir: str, readout: str, layer: str, insight: tuple[str, float],
                 insight_readout: str, window: int, out_paths: list[str]) -> None:
     runs_dirs = find_runs(sweep_dir, "representations_steps.npy")
     n_nets = len(load_config(runs_dirs[0])["model"]["networks"])
     readouts, styles, net_labels = readout_setup(n_nets, readout)
-    runs = [compute_run(d, readouts, layer, insight_frac, insight_readout, window)
+    runs = [compute_run(d, readouts, layer, insight, insight_readout, window)
             for d in runs_dirs]
     x = runs[0]["epochs"]
     n_epochs = runs[0]["n_epochs"]
@@ -284,9 +295,15 @@ def main() -> None:
     parser.add_argument("--readout", choices=["combined", "individual", "both"], default="both",
                         help="Output used for the loss and accuracy panels.")
     parser.add_argument("--layer", default="hidden_0", help="Layer for the pairmate scores.")
+    parser.add_argument("--insight-mode", choices=["absolute", "relative"], default="absolute",
+                        help="Insight criterion of panel f: absolute soft-recall threshold or "
+                             "fraction of the maximal gain.")
+    parser.add_argument("--insight-threshold", type=float, default=0.55,
+                        help="Soft recall of a pair that defines its insight epoch "
+                             "(--insight-mode absolute).")
     parser.add_argument("--insight-frac", type=float, default=0.95,
                         help="Fraction of a pair's maximal soft-recall gain (over epoch 0) "
-                             "that defines its insight epoch in panel f.")
+                             "that defines its insight epoch (--insight-mode relative).")
     parser.add_argument("--insight-readout", default="combined",
                         help="Output used for the insight moment (combined, net0, ...).")
     parser.add_argument("--window", type=int, default=4,
@@ -294,8 +311,10 @@ def main() -> None:
     add_output_args(parser)
     args = parser.parse_args()
     check_output_args(parser, args)
+    insight = (args.insight_mode, args.insight_threshold if args.insight_mode == "absolute"
+               else args.insight_frac)
     for d in args.sweep_dirs:
-        make_figure(d, args.readout, args.layer, args.insight_frac, args.insight_readout,
+        make_figure(d, args.readout, args.layer, insight, args.insight_readout,
                     args.window, resolve_out_paths(args.out, data_out_stem(d, args.readout), args.ext))
 
 
