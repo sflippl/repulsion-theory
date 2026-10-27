@@ -4,6 +4,10 @@ Supports full-batch gradient descent (``batch_size=None``), online SGD
 (``batch_size=1``, reshuffled every epoch) and minibatches in between, with
 any optimizer known to :func:`repulsion.training._build_optimizer`.
 
+``objective`` mirrors :class:`repulsion.training.TrainingConfig`:
+``"summed"`` fits the sum of the streams' outputs to the target,
+``"independent"`` fits each stream's own output and sums the per-stream losses.
+
 Evaluation is a user-supplied ``eval_fn(model, probe)`` run at step 0 and then
 either every ``eval_every_steps`` steps or on the geometric schedule used by
 the main evaluator (``eval_every_log_steps``), plus always at the final step.
@@ -35,6 +39,11 @@ class TrainConfig:
     eval_every_steps: Optional[int] = None
     eval_every_log_steps: Optional[float] = 1.01
     log_every_epochs: int = 10
+    objective: str = "summed"  # or "independent"
+
+    def __post_init__(self) -> None:
+        if self.objective not in ("summed", "independent"):
+            raise ValueError(f"objective must be 'summed' or 'independent'; got {self.objective!r}.")
 
 
 @dataclass
@@ -51,6 +60,13 @@ def _loss(pred: torch.Tensor, target: torch.Tensor, kind: str) -> torch.Tensor:
         # (as in repulsion.training.compute_loss)
         return ((pred - target) ** 2).sum(-1).mean()
     raise ValueError(f"Unknown loss '{kind}'. Available: 'mse'.")
+
+
+def _objective_loss(model: torch.nn.Module, x: torch.Tensor, y: torch.Tensor, cfg: TrainConfig) -> torch.Tensor:
+    if cfg.objective == "summed":
+        return _loss(model(x), y, cfg.loss)
+    full_input = model.prepare_input(x)
+    return sum(_loss(net(full_input), y, cfg.loss) for net in model.networks)
 
 
 def train(
@@ -119,7 +135,7 @@ def train(
         for start in range(0, n, batch_size):
             maybe_eval(step)
             idx = order[start:start + batch_size]
-            loss = _loss(model(X[idx]), Y[idx], cfg.loss)
+            loss = _objective_loss(model, X[idx], Y[idx], cfg)
             opt.zero_grad()
             loss.backward()
             opt.step()
