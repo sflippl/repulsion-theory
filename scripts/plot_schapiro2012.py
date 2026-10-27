@@ -157,7 +157,7 @@ def plot_loss(settings: list[dict], out_dir: str, exts: list[str]) -> None:
         band(ax, np.arange(1, per_epoch.shape[1] + 1), m, h, color, label=setting_label(data))
     ax.set_yscale("log")
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Training loss (MSE)")
+    ax.set_ylabel("Training loss")
     ax.legend(fontsize=8)
     save(fig, out_dir, "loss", exts)
 

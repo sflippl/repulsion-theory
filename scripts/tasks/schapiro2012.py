@@ -40,7 +40,7 @@ Usage
     # kWTA applied to the superposition instead of to each item
     python scripts/tasks/schapiro2012.py stimuli.separate_inputs=false
     # notebook-style minibatch SGD
-    python scripts/tasks/schapiro2012.py training.batch_size=32 training.momentum=0 training.lr=10 training.epochs=100
+    python scripts/tasks/schapiro2012.py training.batch_size=32 training.momentum=0 training.lr=0.1 training.epochs=100
     # any model from configs/model (default: configs/model/complete_model_linear.yaml)
     python scripts/tasks/schapiro2012.py model=complete_model_relu
 """
@@ -112,7 +112,7 @@ class SchapiroConfig:
     stimuli: StimuliConfig = field(default_factory=StimuliConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     # online SGD with momentum; one epoch is one pass over the ~2000 transitions
-    training: TrainConfig = field(default_factory=lambda: TrainConfig(lr=0.5, epochs=10, log_every_epochs=1))
+    training: TrainConfig = field(default_factory=lambda: TrainConfig(lr=0.1, momentum=0.5, epochs=10, log_every_epochs=1))
 
 
 ConfigStore.instance().store(name="schapiro2012", node=SchapiroConfig)

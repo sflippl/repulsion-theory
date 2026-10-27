@@ -13,5 +13,5 @@ LAUNCHER=${LAUNCHER:-cpu}
 SEEDS=$(seq -s, 0 49)
 NAME=${NAME:-online}
 
-python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=50 training.lr=10.0 training.momentum=0.5 training.batch_size=1 "$@" \
+python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=50 training.lr=0.1 training.momentum=0.5 training.batch_size=1 "$@" \
     hydra.sweep.dir=data/wammes2021/${NAME} hydra/launcher=${LAUNCHER} --multirun

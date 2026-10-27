@@ -114,7 +114,7 @@ def plot_loss(data, out_dir: str, exts: list[str]) -> None:
     band(ax, np.arange(1, n_epochs + 1), m, h, LINE)
     ax.set_yscale("log")
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Training loss (MSE)")
+    ax.set_ylabel("Training loss")
     ax.set_title(f"Loss (n = {data['n_seeds']} seeds)", loc="left")
     save(fig, out_dir, "loss", exts)
 
