@@ -10,8 +10,9 @@
 # Plot afterwards with
 #   python scripts/plot_wammes2021.py data/wammes2021/online
 LAUNCHER=${LAUNCHER:-cpu}
-SEEDS=$(seq -s, 0 49)
+SEEDS=$(seq -s, 0 39)
 NAME=${NAME:-online}
+MODEL="complete_model_linear"
 
-python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=50 training.lr=10.0 training.momentum=0.5 training.batch_size=1 "$@" \
-    hydra.sweep.dir=data/wammes2021/${NAME} hydra/launcher=${LAUNCHER} --multirun
+python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=50 training.lr=0.1 training.momentum=0.5 training.batch_size=1 "model=${MODEL}" "$@" \
+    hydra.sweep.dir=data/wammes2021/${MODEL}/${NAME} hydra/launcher=${LAUNCHER} --multirun
