@@ -34,7 +34,7 @@ Usage
     # kWTA applied to the superposition instead of to each item
     python scripts/tasks/wammes2021.py stimuli.separate_inputs=false
     # notebook-style full-batch gradient descent
-    python scripts/tasks/wammes2021.py training.batch_size=null training.momentum=0 training.lr=10 training.epochs=5000
+    python scripts/tasks/wammes2021.py training.batch_size=null training.momentum=0 training.lr=0.1 training.epochs=5000
     # any model from configs/model (default: configs/model/complete_model_linear.yaml)
     python scripts/tasks/wammes2021.py model=complete_model_relu
     # single stream: drop the kWTA stream
@@ -108,8 +108,8 @@ class WammesConfig:
     output_dir: Optional[str] = None
     stimuli: StimuliConfig = field(default_factory=StimuliConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
-    # online SGD with momentum; lr is large because the MSE averages over output dims
-    training: TrainConfig = field(default_factory=lambda: TrainConfig(lr=0.5, epochs=20))
+    # online SGD with momentum
+    training: TrainConfig = field(default_factory=lambda: TrainConfig(lr=0.1, momentum=0.5, epochs=20))
 
 
 ConfigStore.instance().store(name="wammes2021", node=WammesConfig)

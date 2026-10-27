@@ -16,7 +16,7 @@ NAME=${NAME:-online}
 SEEDS=${SEEDS:-$(seq -s, 0 19)}
 PHI_IN=0.5,0.6,0.7,0.8,0.9,1.0
 
-python scripts/tasks/schapiro2012.py seed=${SEEDS} stimuli.phi_in=${PHI_IN} \
+python scripts/tasks/schapiro2012.py seed=${SEEDS} stimuli.phi_in=${PHI_IN} training.lr=0.1 training.momentum=0.5 \
     stimuli.phi_out=null "$@" \
     hydra.sweep.dir=data/schapiro2012/${NAME} 'hydra.sweep.subdir=phi_in_${stimuli.phi_in}/${seed}' \
     hydra/launcher=${LAUNCHER} --multirun

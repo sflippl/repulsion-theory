@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class TrainConfig:
     optimizer: str = "sgd"
-    lr: float = 0.02
+    lr: float = 0.1
     momentum: float = 0.9
     batch_size: Optional[int] = 1  # None → full batch
     epochs: int = 100
@@ -47,7 +47,9 @@ class TrainResult:
 
 def _loss(pred: torch.Tensor, target: torch.Tensor, kind: str) -> torch.Tensor:
     if kind == "mse":
-        return torch.mean((pred - target) ** 2)
+        # squared error summed over output dimensions, averaged over samples
+        # (as in repulsion.training.compute_loss)
+        return ((pred - target) ** 2).sum(-1).mean()
     raise ValueError(f"Unknown loss '{kind}'. Available: 'mse'.")
 
 

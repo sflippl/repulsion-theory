@@ -14,5 +14,5 @@ SEEDS=$(seq -s, 0 39)
 NAME=${NAME:-online}
 MODEL="complete_model_linear"
 
-python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=50 training.lr=0.1 training.momentum=0.5 training.batch_size=1 "model=${MODEL}" "$@" \
+python scripts/tasks/wammes2021.py seed=${SEEDS} training.epochs=10 training.lr=0.1 training.momentum=0.5 training.batch_size=1 "model=${MODEL}" "$@" \
     hydra.sweep.dir=data/wammes2021/${MODEL}/${NAME} hydra/launcher=${LAUNCHER} --multirun

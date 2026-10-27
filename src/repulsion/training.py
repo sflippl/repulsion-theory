@@ -92,7 +92,7 @@ def compute_loss(
 
     For each slot:
     * Active samples are those whose target is not NaN.
-    * MSE slots: mean squared error averaged over dimensions, then
+    * MSE slots: squared error summed over dimensions, then
       weighted by ``task_weights`` and averaged over active samples.
     * Classification slots: cross-entropy loss, same weighting.
     * Disabled (all-NaN) slots contribute 0 to the total.
