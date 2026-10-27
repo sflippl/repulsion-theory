@@ -12,6 +12,7 @@ c. response away from competitor: proportion of color read-outs that are
    colors; see ``poster_figure.ipynb``)
 
 The x-axis counts training cycles (one pass through each task in the schedule).
+Phases training object-face autoencoding (``prediction_test``) are shaded grey.
 
 Usage
 -----
@@ -32,6 +33,7 @@ import numpy as np
 
 from plot_common import (
     PANEL_MM_DEFAULT,
+    PHASE_SHADE,
     by_condition,
     default_out_path,
     find_runs,
@@ -66,6 +68,8 @@ C21_LABELS = {
     'low_sim':  'low',
 }
 CONDITIONS = ["low_sim", "med_sim", "high_sim", "ultra_sim"]
+# Training phases on this task are shaded in every panel.
+SHADED_TASK = "prediction_test"
 # Two bottom panels of 45 mm; with three losses the figure widens so that the
 # top-row panels are only somewhat narrower than the bottom ones.
 PANEL_MM = (45, PANEL_MM_DEFAULT[1])
@@ -112,10 +116,14 @@ def compute_run(run_dir: str, readouts: list[str]) -> dict:
     res = {"cfg": cfg}
 
     steps = load_steps(run_dir, "prediction")
-    _, step_edges = phase_step_edges(run_dir, cfg)
+    phases, step_edges = phase_step_edges(run_dir, cfg)
     n_cycles = int(cfg["schedule"].get("epochs") or 1)
-    res["x"] = steps * n_cycles / step_edges[-1]
+    scale = n_cycles / step_edges[-1]
+    res["x"] = steps * scale
     res["n_cycles"] = n_cycles
+    res["shaded"] = [(lo * scale, hi * scale)
+                     for phase, lo, hi in zip(phases, step_edges[:-1], step_edges[1:])
+                     if phase.tasks[0] == SHADED_TASK]
 
     res["loss_probes"] = [p for p, _ in LOSS_PROBES
                           if os.path.exists(os.path.join(run_dir, f"{p}_rows.json"))]
@@ -153,6 +161,10 @@ def make_figure(sweep_dir: str, readout: str, out_path: str) -> None:
     loss_probes = runs[0]["loss_probes"]
     n_loss = len(loss_probes)
 
+    def shade(ax):
+        for lo, hi in runs[0]["shaded"]:
+            ax.axvspan(lo, hi, color=PHASE_SHADE, zorder=0, linewidth=0)
+
     setup_style()
     width_mm = WIDTH_MM.get(n_loss, 0.8 * n_loss * PANEL_MM[0])
     fig = plt.figure(figsize=(width_mm / 25.4, PANEL_MM[1] * 2 / 25.4), dpi=300)
@@ -172,6 +184,7 @@ def make_figure(sweep_dir: str, readout: str, out_path: str) -> None:
         for r in readouts:
             plot_conditions(ax, x, runs, (probe, r), CONDITIONS, C21_COLORS, linestyle=styles[r])
         ax.set_ylim(bottom=0)
+        shade(ax)
         style_axis(ax, xticks, xlabel=None)
         label_axis(ax, "Loss" if i == 0 else None, titles[probe], "a" if i == 0 else None,
                    tag_x=tag_x(width_mm / n_loss))
@@ -186,6 +199,7 @@ def make_figure(sweep_dir: str, readout: str, out_path: str) -> None:
             ax.set_ylim(-0.03, 1.03)
             ax.set_yticks([0, 0.5, 1])
             reference_line(ax, 0.5)
+        shade(ax)
         style_axis(ax, xticks, xlabel="Epoch")
         label_axis(ax, ylabel, None, tag, tag_x=tag_x(width_mm / 2))
 
