@@ -1,9 +1,10 @@
 # @package _global_.evaluation
 #
-# Example evaluation suite:
-#   1. Hidden representations from stream 0 at the output layer, logged at
-#      geometrically-spaced steps (factor 2 → steps 0, 1, 2, 4, 8, 16, …).
-#   2. Combined per-slot loss, logged at geometrically-spaced steps.
+# Logged at geometrically-spaced steps (factor 1.01):
+#   representations   hidden representations of every stream (pairmate vs.
+#                     non-pairmate similarity)
+#   output            route read-out (accuracy vs. the pairmate route)
+#   loss_prediction   aggregate per-slot autoencoding loss
 #
 # Use eval_every_steps: N instead of eval_every_log_steps for fixed intervals.
 
@@ -11,6 +12,11 @@ evaluations:
   - name: representations
     task: autoencoding
     save: representation
+    eval_every_log_steps: 1.01
+
+  - name: output
+    task: autoencoding
+    save: output
     eval_every_log_steps: 1.01
 
   - name: loss_prediction
