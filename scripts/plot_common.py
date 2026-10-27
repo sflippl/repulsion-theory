@@ -1,6 +1,6 @@
 """plot_common.py — shared loading and styling for the paper simulation figures.
 
-Used by ``plot_favila2016.py`` and ``plot_chanales2021.py`` so that all
+Used by the ``plot_<experiment>.py`` scripts so that all
 figures share one style: 7 pt fonts, thin boxed axes, bold lowercase panel
 tags, italic panel titles, and a single legend on top.  Conditions are
 encoded by color; readouts (summed output vs. each stream alone) by line
@@ -112,6 +112,25 @@ def loss_by_condition(slot_outputs: list[dict], readout: str, rows: list[dict],
     """Summed-over-slots squared error, averaged over rows of each condition."""
     per_row = sum(((o[readout] - o["target"][None]) ** 2).sum(-1) for o in slot_outputs)
     return by_condition(per_row, rows, conditions)
+
+
+def pairmate_score(reps: np.ndarray, rows: list[dict], conditions: list[str]) -> dict:
+    """Mean pairmate correlation minus mean non-pairmate correlation, per condition.
+
+    *reps* is (n_checkpoints, n_rows, dim); pairmates share subgroup and group_id.
+    """
+    out = {}
+    for c, m in condition_masks(rows, conditions).items():
+        groups = np.array([r["group_id"] for r in rows])[m]
+        same = groups[:, None] == groups[None, :]
+        np.fill_diagonal(same, False)
+        diff = groups[:, None] != groups[None, :]
+        scores = np.empty(reps.shape[0])
+        for t in range(reps.shape[0]):
+            corr = np.corrcoef(reps[t][m])
+            scores[t] = np.nanmean(corr[same]) - np.nanmean(corr[diff])
+        out[c] = scores
+    return out
 
 
 def row_loss_by_condition(run_dir: str, probe: str, readout: str,

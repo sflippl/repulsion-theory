@@ -53,6 +53,7 @@ from plot_common import (
     load_steps,
     loss_by_condition,
     condition_masks as _condition_masks,
+    pairmate_score as _pairmate_score,
     phase_step_edges,
     plot_conditions,
     readout_setup,
@@ -132,18 +133,7 @@ def association_recall(face_out: dict, readout: str, rows: list[dict]) -> dict:
 
 def pairmate_score(reps: np.ndarray, rows: list[dict]) -> dict:
     """Mean pairmate correlation minus mean non-pairmate correlation, per condition."""
-    out = {}
-    for c, m in condition_masks(rows).items():
-        groups = np.array([r["group_id"] for r in rows])[m]
-        same = groups[:, None] == groups[None, :]
-        np.fill_diagonal(same, False)
-        diff = groups[:, None] != groups[None, :]
-        scores = np.empty(reps.shape[0])
-        for t in range(reps.shape[0]):
-            corr = np.corrcoef(reps[t][m])
-            scores[t] = np.nanmean(corr[same]) - np.nanmean(corr[diff])
-        out[c] = scores
-    return out
+    return _pairmate_score(reps, rows, CONDITIONS)
 
 
 def compute_run(run_dir: str, readouts: list[str], layer: str) -> dict:
