@@ -82,9 +82,9 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class StimuliConfig:
-    pair_corrs: List[float] = field(default_factory=lambda: [0.2] * 4 + [0.6] * 4)
-    between_corr: float = 0.2
-    strong_pairs: List[int] = field(default_factory=lambda: [0, 1, 4, 5])  # all other pairs are weak
+    pair_corrs: List[float] = field(default_factory=lambda: [0.3] * 4)
+    between_corr: float = 0.3
+    strong_pairs: List[int] = field(default_factory=lambda: [0, 1])  # all other pairs are weak
     dim: int = 128
     n_events: int = 1000
     strong_prob: float = 0.5       # probability that an event is drawn from the strong pairs

@@ -274,7 +274,7 @@ def make_figure(sweep_dir: str, readout: str, layer: str, insight: tuple[str, fl
         (soft_ax, "c", None, "Soft recall"),
         (scene_ax, "d", "Scenes", "Pairmate score"),
         (obj_ax, "e", "Objects", None),
-        (lag_ax, "f", "Scenes vs. insight", None),
+        (lag_ax, "f", None, None),
     ):
         style_axis(ax, xticks, xlabel="Epoch" if ax in (scene_ax, obj_ax) else None)
         label_axis(ax, ylabel, title, tag, tag_x=tag_x)
