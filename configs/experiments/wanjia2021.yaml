@@ -7,8 +7,8 @@ defaults:
 
 experiment_hparams:
   scene_corr_between: 0.
-  scene_high_corr: 0.7
-  scene_low_corr: 0.3
-  object_high_corr: 0.7
-  object_low_corr: 0.3
+  scene_high_corr: 0.5
+  scene_low_corr: 0.4
+  object_high_corr: 0.5
+  object_low_corr: 0.4
   
