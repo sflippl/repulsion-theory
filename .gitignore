@@ -231,3 +231,6 @@ __pycache__
 repulsion.egg-info/
 
 test.txt
+# Image datasets and cached image embeddings (stimulus_type: image)
+data/cifar100/
+data/embeddings/

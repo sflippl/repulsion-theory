@@ -10,6 +10,8 @@ dependencies = ["numpy>=1.24", "hydra-core>=1.3", "scipy>=1.10", "pandas>=2.0", 
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "matplotlib", "seaborn", "jupyter"]
+# image items (stimulus_type: image): torchvision matching the installed torch
+images = ["torchvision"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
