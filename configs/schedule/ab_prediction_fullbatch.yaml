@@ -1,0 +1,9 @@
+# @package _global_.schedule
+#
+# Full-batch prediction of B from A (one gradient step per epoch), as
+# ab_fullbatch for the autoencoder. The learning rate is set by training.lr.
+
+component_type:
+  - component_type: prediction
+    epochs: 6000
+batch_size: null

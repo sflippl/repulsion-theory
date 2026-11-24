@@ -414,6 +414,32 @@ class TestEvaluatorOutput:
 # 6. Evaluator — loss
 # ===========================================================================
 
+class TestEvaluatorRowLoss:
+    def test_row_loss_matches_aggregate_loss(self, simple_model, collection, loss_spec):
+        import json
+        with tempfile.TemporaryDirectory() as tmpdir:
+            specs = [
+                parse_eval_spec({"name": "rl", "task": "autoencoding", "save": "row_loss",
+                                 "eval_every_steps": 1}),
+                parse_eval_spec({"name": "lss", "task": "autoencoding", "save": "loss",
+                                 "eval_every_steps": 1}),
+            ]
+            ev = Evaluator(specs, collection, simple_model, loss_spec, tmpdir)
+            ev.maybe_run_all(0)
+            ev.finalize()
+            row = np.load(os.path.join(tmpdir, "rl_combined.npy"))
+            agg = np.load(os.path.join(tmpdir, "lss_combined.npy"))
+            with open(os.path.join(tmpdir, "rl_meta.json")) as f:
+                active = json.load(f)["slots"]
+            n_rows = len(collection["autoencoding"].rows)
+            assert row.shape == (1, n_rows, len(active))
+            slot_names = [s.label for s in loss_spec.slots]
+            for k, name in enumerate(active):
+                np.testing.assert_allclose(
+                    row[0, :, k].mean(), agg[0, slot_names.index(name)], rtol=1e-5)
+            assert os.path.exists(os.path.join(tmpdir, "rl_rows.json"))
+
+
 class TestEvaluatorLoss:
     def test_loss_files_written(self, simple_model, collection, loss_spec):
         with tempfile.TemporaryDirectory() as tmpdir:

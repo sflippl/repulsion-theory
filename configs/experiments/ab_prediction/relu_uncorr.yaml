@@ -1,0 +1,15 @@
+# @package _global_
+#
+# Full-batch prediction of B from A: ReLU network, sampled vectors, corr(A) = 0, B1 = B2.
+# Plain gradient descent, learning rate scaled to the input norm
+# (sampled vectors: unit norm; CIFAR features: ~26 per slot).
+defaults:
+  - override /model: relu_small_init
+  - override /dataset: ab_prediction
+  - override /schedule: ab_prediction_fullbatch
+  - override /items: ab_uncorr
+  - override /evaluation: ab_prediction
+
+training:
+  lr: 0.04
+  momentum: 0.0

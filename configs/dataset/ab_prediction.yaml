@@ -1,0 +1,27 @@
+# @package _global_.dataset
+#
+# Predictive network: predict B from A. a_input is the same mapping, used only
+# to read out the hidden representations of A.
+
+slots:
+  input:
+    A: A
+  output:
+    B: B
+
+tasks:
+  - name: prediction
+    input:
+      A:
+        magnitude: 1.0
+    output:
+      B:
+        magnitude: 1.0
+  # Evaluation only: hidden representations of A.
+  - name: a_input
+    input:
+      A:
+        magnitude: 1.0
+    output:
+      B:
+        magnitude: 1.0

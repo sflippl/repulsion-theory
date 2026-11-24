@@ -36,9 +36,7 @@ class ItemsConf:
 
     ``items`` is typed as ``List[Any]`` because each entry may contain an
     arbitrarily nested ``subgroups`` list — OmegaConf cannot represent that
-    with a fixed typey 'scene_corr_between' not in 'Config'
-    full_key: scene_corr_between
-    object_type=Configed schema.  Validation is performed at runtime by
+    with a fixed typed schema.  Validation is performed at runtime by
     :func:`repulsion.stimgen.parse_items`.
     """
     items: List[Any] = MISSING
@@ -146,6 +144,8 @@ class TrainingConf:
     attention_momentum: float = 0.9
     network_steps: int = 1
     attention_steps: int = 1
+    # optimiser steps per batch (e.g. repeated learning on one presentation)
+    steps_per_batch: int = 1
     # "summed": fit the sum of streams; "independent": fit each stream separately
     objective: str = "summed"
 

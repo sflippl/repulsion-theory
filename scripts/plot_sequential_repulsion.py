@@ -9,9 +9,13 @@ outputs are summed and fit the target (objective "summed"):
                    per-slot kWTA (frac 0.005), normalized to the input norm,
                    -> 128 linear hidden -> output
 Training follows the main runs (scripts/favila2016.sh etc.): SGD, lr 0.1,
-momentum 0.5, squared error summed over output dimensions, one optimizer
-kept across blocks. With --readout fixed the output layers are frozen and
-only the hidden layers are trained.
+squared error summed over output dimensions, one optimizer kept across
+blocks -- except momentum is 0 (not 0.5), so no update from one block's
+item carries over into the next block. With --readout fixed the output layers are frozen and
+only the hidden layers are trained. With --objective independent (as
+training.objective=independent in the repo) each stream fits the target on
+its own and the per-stream losses are summed; the loss row then shows each
+stream's own output loss (dense solid, sparse dashed).
 
 Stimuli (autoencoder, phi_in = phi_out = 0.5, G = M = 2): items A1-B1,
 A2-B2, A3-B3, A4-B4 with A's mutually orthogonal and corr(B1, B2) =
@@ -19,8 +23,15 @@ corr(B3, B4) = rho_sB (rho_sB = 1: A1/A2 share one associate). A and B sit in
 separate input slots, [sqrt(phi) A, sqrt(1 - phi) B], and the target is the
 input. Item vectors are randomly rotated per seed.
 
-Schedules (one block = one item, STEPS_PER_BLOCK updates each):
+With --task a-only there are no B items: the network (one input slot)
+autoencodes A1, A2, A3, A4 with corr(A1, A2) = corr(A3, A4) = --rho-A
+(default 0.25, 0.5, 0.75; one column each), presented in the same blocks.
+With --task a-to-b the input is the same, but the network predicts mutually
+orthogonal (unit-norm) B1, B2, B3, B4 instead of reconstructing A.
+
+Schedules (one block = one item, --steps-per-block updates each, default 100):
     revisit:     1 -> 2 -> 3 -> 4 -> 1 -> 3
+    first16:     (1 -> 2 -> 3 -> 4) x 4  (zoom into the start of alternating)
     alternating: 1 -> 2 -> 3 -> 4, then (1 -> 2 -> 3 -> 4) x 10
 
 Optional regularizer on items that are NOT in the current block: with p the
@@ -30,16 +41,21 @@ active item's B is skipped), add
 on the hidden representations, where h_anchor uses either the initial
 weights ("init") or the weights at the start of the current block ("block").
 
-Pairmate score = cos(h(A1), h(A2)) - cos(h(A1), h(A3)), hidden reps probed
-with pure A input (subtracting the cross-group cosine removes the sparse
-stream's kWTA chance floor). Output error = ||y_i - yhat_i|| per item (the
-target has unit norm, so 1 = nothing learned).
+Pairmate score = mean of the pairmate similarities cos(h(A1), h(A2)) and
+cos(h(A3), h(A4)) minus the mean of the four non-pairmate similarities
+(A1-A3, A1-A4, A2-A3, A2-A4), hidden reps probed with pure A input
+(subtracting the non-pairmate mean removes the sparse stream's kWTA chance
+floor). Relative loss = ||y_i - yhat_i||^2 of item i
+divided by its value at initialization (1 = nothing learned).
 
 Outputs (under --figures-dir, default figures/sequential-repulsion; stems get
-a "-fixed-readout" suffix with --readout fixed):
-    revisit-trajectories.pdf
-    alternating-trajectories.pdf
+a "-fixed-readout" suffix with --readout fixed, "-<n>steps" with a
+non-default --steps-per-block, "-independent" with --objective independent, and an "a-only-" / "a-to-b-" prefix with
+--task a-only / a-to-b):
+    revisit-trajectories.pdf      (top: pairmate score, bottom: relative loss of all
+    alternating-trajectories.pdf   four items; one column per --rho-sB, default 1 and 0.5)
     reg-init-trajectories.pdf, reg-block-trajectories.pdf  (alternating schedule)
+    first16-trajectories.pdf      (same, first 16 blocks of alternating)
     reg-init-revisit.pdf, reg-block-revisit.pdf            (zoomed in: revisit schedule)
     reg-summary.csv  (end-of-revisit and end-of-schedule values, all settings)
 
@@ -47,6 +63,8 @@ Usage:
     python scripts/plot_sequential_repulsion.py
     python scripts/plot_sequential_repulsion.py --only revisit alternating
     python scripts/plot_sequential_repulsion.py --only revisit alternating --readout trained fixed
+    python scripts/plot_sequential_repulsion.py --only revisit alternating --task a-only
+    python scripts/plot_sequential_repulsion.py --only first16 --task a-to-b --steps-per-block 20
 """
 from __future__ import annotations
 
@@ -74,28 +92,42 @@ from repulsion.tasks import build_model
 MODEL_CONFIG = os.path.join(ROOT, "configs", "model", "complete_model_linear.yaml")
 G, M, DA = 2, 2, 64  # DA = item dimension (as in configs/items/default.yaml)
 PHI = 0.5
-LR, MOMENTUM = 0.1, 0.5
-STEPS_PER_BLOCK = 100   # at lam <= 1; scaled by lam above (lr divided by lam)
+LR, MOMENTUM = 0.1, 0.0
+STEPS_PER_BLOCK = 100   # default; at lam <= 1, scaled by lam above (lr divided by lam)
+BLOCK_ALPHA = 0.12      # background tint of each block in its item's color
 N_RECORD = 50           # recorded points per block
 
 SCHEDULES = {
     "revisit": [0, 1, 2, 3, 0, 2],
+    "first16": [0, 1, 2, 3] * 4,
     "alternating": [0, 1, 2, 3] + [0, 1, 2, 3] * 10,
 }
-REVISIT_LABELS = ["A1B1", "A2B2", "A3B3", "A4B4", "A1B1", "A3B3"]
 STREAM_LABELS = ["Dense", "Sparse"]
 STREAM_STYLES = ["-", "--"]
-ITEM_COLORS = ["#4477AA", "#CC6677"]  # item 1 (A1-B1), item 2 (A2-B2)
+ITEM_COLORS = ["#4477AA", "#CC6677", "#228833", "#CCBB44"]
+PAIR_COLORS = ["#882255", "#44AA99"]  # cos(h(A1), h(A2)), cos(h(A3), h(A4))
+ITEM_LABELS = {"associative": ["A1B1", "A2B2", "A3B3", "A4B4"], "a-only": ["A1", "A2", "A3", "A4"],
+               "a-to-b": [r"A1$\to$B1", r"A2$\to$B2", r"A3$\to$B3", r"A4$\to$B4"]}
+SINGLE_SLOT_TASKS = ("a-only", "a-to-b")  # input = A only, rho = corr(A1, A2)
 
 
 # ====================================================================== #
 # Data and training
 # ====================================================================== #
 
-def build_data(rho_sB, rng):
+def build_data(rho, rng, task="associative"):
     """Inputs X (= autoencoder targets), A probes ZA and B probes ZB, each
-    N x 2DA with A in the first slot and B in the second."""
+    N x 2DA with A in the first slot and B in the second (rho = corr(B1, B2)).
+    For task "a-only": X = ZA = the A items (N x DA, rho = corr(A1, A2)), no ZB.
+    For task "a-to-b": the same X = ZA, plus targets Y = orthonormal B items."""
     rot = lambda: np.linalg.qr(rng.standard_normal((DA, DA)))[0]
+    if task in SINGLE_SLOT_TASKS:
+        vA = torch.tensor(make_group_vectors(1.0, 0.0, rho, G, M, DA) @ rot(), dtype=torch.float32)
+        data = dict(X=vA, ZA=vA)
+        if task == "a-to-b":
+            data["Y"] = torch.tensor(rot()[:G * M], dtype=torch.float32)
+        return data
+    rho_sB = rho
     vA = make_group_vectors(1.0, 0.0, 0.0, G, M, DA) @ rot()
     vB = make_group_vectors(1.0, 0.0, rho_sB, G, M, DA) @ rot()
     ZA = np.hstack([vA, np.zeros_like(vA)])
@@ -104,11 +136,11 @@ def build_data(rho_sB, rng):
     return {k: torch.tensor(v, dtype=torch.float32) for k, v in dict(X=X, ZA=ZA, ZB=ZB).items()}
 
 
-def build_network():
+def build_network(n_slots=2):
     specs = OmegaConf.to_container(OmegaConf.load(MODEL_CONFIG).networks, resolve=True)
-    # two concatenated input slots (A, B), as in the main pipeline -- not summed
+    # concatenated input slots (A, B), as in the main pipeline -- not summed
     specs = [{**spec, "sum_input_slots": False} for spec in specs]
-    return build_model(specs, in_dim=DA, out_dim=2 * DA, n_input_slots=2)
+    return build_model(specs, in_dim=DA, out_dim=n_slots * DA, n_input_slots=n_slots)
 
 
 def hidden(model, Z):
@@ -118,46 +150,59 @@ def hidden(model, Z):
 def inactive_probes(data, item):
     """Pure-A and pure-B probes of all items other than `item` (a B probe
     identical to the active item's B is skipped, e.g. B1 while training A2-B1)."""
-    ZA, ZB = data["ZA"], data["ZB"]
+    ZA, ZB = data["ZA"], data.get("ZB")
     others = [i for i in range(G * M) if i != item]
+    if ZB is None:
+        return ZA[others]
     shared = lambda i: torch.cosine_similarity(ZB[i], ZB[item], dim=0) > 0.999
     return torch.cat([ZA[others]] + [ZB[[i]] for i in others if not shared(i)])
 
 
-def pairmate_scores(H):
+def rep_cosines(H):
     Hn = H / H.norm(dim=1, keepdim=True)
-    C = Hn @ Hn.T
-    return (C[0, 1] - C[0, 2]).item(), (C[2, 3] - C[2, 0]).item()
+    return Hn @ Hn.T
 
 
-def simulate(rho_sB, readout, schedule_name, lam=0.0, anchor="init", seed=0):
+def pairmate_score(C):
+    pairs = (C[0, 1] + C[2, 3]) / 2
+    nonpairs = C[:2, 2:].mean()
+    return (pairs - nonpairs).item()
+
+
+def simulate(rho, readout, schedule_name, lam=0.0, anchor="init", seed=0, task="associative",
+             steps_per_block=STEPS_PER_BLOCK, objective="summed"):
     """Returns a dict of recorded trajectories (x in units of blocks)."""
     torch.set_num_threads(1)
     torch.manual_seed(seed)
     schedule = SCHEDULES[schedule_name]
-    data = build_data(rho_sB, np.random.default_rng(seed))
-    X = data["X"]
-    model = build_network()
+    data = build_data(rho, np.random.default_rng(seed), task)
+    X, Y = data["X"], data.get("Y", data["X"])
+    n_slots = 1 if task in SINGLE_SLOT_TASKS else 2
+    model = build_network(n_slots)
     if readout == "fixed":
         for net in model.networks:
             net.mlp.net[-1].weight.requires_grad_(False)
     params = [p for p in model.parameters() if p.requires_grad]
     scale = max(1.0, lam)
     opt = torch.optim.SGD(params, lr=LR / scale, momentum=MOMENTUM)
-    n_steps = int(STEPS_PER_BLOCK * scale)
+    n_steps = int(steps_per_block * scale)
     rec_every = max(1, n_steps // N_RECORD)
-    init_model = build_network()
+    init_model = build_network(n_slots)
     init_model.load_state_dict(model.state_dict())
-    rec = {"x": [], "dense": [], "sparse": [], "dense_g2": [], "sparse_g2": [], "err": []}
+    rec = {"x": [], "err": [], "err_dense": [], "err_sparse": []}
+    rec.update({f"{name}{key}": [] for name in ["dense", "sparse"] for key in ["", "_sim12", "_sim34"]})
 
     @torch.no_grad()
     def record(x):
         rec["x"].append(x)
-        rec["err"].append((X - model(X)).norm(dim=1).numpy())
+        rec["err"].append((Y - model(X)).norm(dim=1).numpy())
+        for name, net in zip(["dense", "sparse"], model.networks):
+            rec["err_" + name].append((Y - net(X)).norm(dim=1).numpy())
         for name, H in zip(["dense", "sparse"], hidden(model, data["ZA"])):
-            g1, g2 = pairmate_scores(H)
-            rec[name].append(g1)
-            rec[name + "_g2"].append(g2)
+            C = rep_cosines(H)
+            rec[name].append(pairmate_score(C))
+            rec[name + "_sim12"].append(C[0, 1].item())
+            rec[name + "_sim34"].append(C[2, 3].item())
 
     record(0.0)
     for b, item in enumerate(schedule):
@@ -165,7 +210,10 @@ def simulate(rho_sB, readout, schedule_name, lam=0.0, anchor="init", seed=0):
         with torch.no_grad():
             targets = hidden(init_model if anchor == "init" else model, P)
         for t in range(n_steps):
-            loss = ((model(X[[item]]) - X[[item]]) ** 2).sum()
+            if objective == "summed":
+                loss = ((model(X[[item]]) - Y[[item]]) ** 2).sum()
+            else:
+                loss = sum(((net(X[[item]]) - Y[[item]]) ** 2).sum() for net in model.networks)
             if lam > 0:
                 loss = loss + lam / 2 * sum(((H - T) ** 2).sum() for H, T in zip(hidden(model, P), targets))
             opt.zero_grad()
@@ -177,7 +225,7 @@ def simulate(rho_sB, readout, schedule_name, lam=0.0, anchor="init", seed=0):
 
 
 def _simulate_cfg(cfg):
-    return cfg, simulate(*cfg)
+    return cfg[:6], simulate(*cfg)  # key without task/steps/objective (one of each per invocation)
 
 
 def run_all(cfgs, n_workers):
@@ -195,17 +243,20 @@ def block_edges(schedule):
     return list(range(0, len(schedule) + 1, step))
 
 
-def plot_trajectories(results, rho_sBs, readout, schedule_name, seeds, out_paths,
-                      block_labels=None, panel_mm=(42, 30)):
-    """Top row: pairmate score (dense solid, sparse dashed); bottom row:
-    output error of items 1 and 2. One column per rho_sB. Mean +/- SEM over seeds."""
+def plot_trajectories(results, rhos, readout, schedule_name, seeds, out_paths,
+                      item_labels, rho_label=r"\rho_{sB}", block_labels=None, panel_mm=(42, 30),
+                      objective="summed"):
+    """Top row: pairmate score (dense solid, sparse dashed); middle row: raw
+    hidden similarity cos(h(A1), h(A2)) and cos(h(A3), h(A4)); bottom row:
+    loss of each of the four items relative to its initial loss (of the summed
+    output, or of each stream's own output for the independent objective).
+    One column per rho. Mean +/- SEM over seeds."""
     schedule = SCHEDULES[schedule_name]
-    edges = block_edges(schedule)
     setup_style()
-    fig, axes = plt.subplots(2, len(rho_sBs), sharex=True,
-                             figsize=(len(rho_sBs) * panel_mm[0] / 25.4, 2 * panel_mm[1] / 25.4))
-    for c, rho_sB in enumerate(rho_sBs):
-        runs = [results[(rho_sB, readout, schedule_name, 0.0, "init", s)] for s in seeds]
+    fig, axes = plt.subplots(3, len(rhos), sharex=True, squeeze=False,
+                             figsize=(len(rhos) * panel_mm[0] / 25.4, 3 * panel_mm[1] / 25.4))
+    for c, rho in enumerate(rhos):
+        runs = [results[(rho, readout, schedule_name, 0.0, "init", s)] for s in seeds]
         x = runs[0]["x"]
         ax = axes[0, c]
         reference_line(ax, 0.0)
@@ -213,30 +264,48 @@ def plot_trajectories(results, rho_sBs, readout, schedule_name, seeds, out_paths
             mean, sem = mean_sem([r[name] for r in runs])
             ax.plot(x, mean, color="black", linestyle=ls, lw=LINEWIDTH)
             ax.fill_between(x, mean - sem, mean + sem, color="black", alpha=0.15, linewidth=0)
-        style_axis(ax, [0, len(schedule)], shade_edges=edges, xlabel=None)
+        style_axis(ax, [0, len(schedule)], xlabel=None)
         label_axis(ax, ylabel="Pairmate score" if c == 0 else None,
-                   title=rf"$\rho_{{sB}}$ = {rho_sB:g}", tag="ab"[c], tag_x=-0.3)
+                   title=rf"${rho_label}$ = {rho:g}", tag="abcdefgh"[c] if len(rhos) > 1 else None, tag_x=-0.3)
         ax = axes[1, c]
+        reference_line(ax, 0.0)
+        for key, col in zip(["_sim12", "_sim34"], PAIR_COLORS):
+            for name, ls in zip(["dense", "sparse"], STREAM_STYLES):
+                mean, sem = mean_sem([r[name + key] for r in runs])
+                ax.plot(x, mean, color=col, linestyle=ls, lw=LINEWIDTH)
+                ax.fill_between(x, mean - sem, mean + sem, color=col, alpha=0.15, linewidth=0)
+        style_axis(ax, [0, len(schedule)], xlabel=None)
+        label_axis(ax, ylabel="Similarity" if c == 0 else None)
+        ax = axes[2, c]
+        err_keys = [("err", "-")] if objective == "summed" else list(zip(["err_dense", "err_sparse"], STREAM_STYLES))
         for i, col in enumerate(ITEM_COLORS):
-            mean, sem = mean_sem([r["err"][:, i] for r in runs])
-            ax.plot(x, mean, color=col, lw=LINEWIDTH)
-        style_axis(ax, [0, len(schedule)], shade_edges=edges,
+            for key, ls in err_keys:
+                mean, sem = mean_sem([r[key][:, i] ** 2 / r[key][0, i] ** 2 for r in runs])
+                ax.plot(x, mean, color=col, linestyle=ls, lw=LINEWIDTH)
+                ax.fill_between(x, mean - sem, mean + sem, color=col, alpha=0.15, linewidth=0)
+        style_axis(ax, [0, len(schedule)],
                    xlabel="Training block" if block_labels is not None else "Block")
         if block_labels is not None:
             ax.set_xticks(np.arange(len(schedule)) + 0.5)
-            ax.set_xticklabels(block_labels, fontsize=FONTSIZE - 2)
+            ax.set_xticklabels(block_labels, fontsize=FONTSIZE - 2, rotation=90)
             ax.tick_params(axis="x", length=0)
         else:
-            ax.set_xticks(list(range(0, len(schedule) + 1, 8)))
-        label_axis(ax, ylabel="Output error" if c == 0 else None)
+            ax.set_xticks(list(range(0, len(schedule) + 1, 4 if len(schedule) <= 16 else 8)))
+        label_axis(ax, ylabel="Relative loss" if c == 0 else None)
+    for ax in axes.flat:
+        for b, item in enumerate(schedule):
+            ax.axvspan(b, b + 1, color=ITEM_COLORS[item], alpha=BLOCK_ALPHA, linewidth=0, zorder=0)
     share_ylim(axes[0])
     share_ylim(axes[1])
+    share_ylim(axes[2])
     handles = [Line2D([], [], color="black", linestyle=ls, lw=LINEWIDTH, label=lab)
                for ls, lab in zip(STREAM_STYLES, STREAM_LABELS)]
-    handles += [Line2D([], [], color=col, lw=LINEWIDTH, label=f"Item {i + 1}")
-                for i, col in enumerate(ITEM_COLORS)]
+    handles += [Line2D([], [], color=col, lw=LINEWIDTH, label=lab)
+                for col, lab in zip(PAIR_COLORS, [r"A1$\cdot$A2", r"A3$\cdot$A4"])]
+    handles += [Line2D([], [], color=col, lw=LINEWIDTH, label=lab) for col, lab in zip(ITEM_COLORS, item_labels)]
     fig.subplots_adjust(hspace=0.15, wspace=0.3)
-    top_legend(fig, handles, y=0.97)
+    fig.legend(handles=handles, loc="lower center", ncol=4 if len(rhos) > 1 else 2, fontsize=FONTSIZE, frameon=False,
+               bbox_to_anchor=(0.5, 0.95), handlelength=1.6, columnspacing=1.0, borderaxespad=0)
     save_figure(fig, out_paths)
 
 
@@ -314,44 +383,62 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--figures-dir", default="figures/sequential-repulsion")
     parser.add_argument("--only", nargs="+", default=["revisit", "alternating", "regularization"],
-                        choices=["revisit", "alternating", "regularization"])
+                        choices=["revisit", "first16", "alternating", "regularization"])
     parser.add_argument("--readout", nargs="+", default=["trained"], choices=["trained", "fixed"])
+    parser.add_argument("--task", default="associative", choices=["associative", "a-only", "a-to-b"])
+    parser.add_argument("--rho-sB", type=float, nargs="+", default=[1.0, 0.5],
+                        help="rho_sB columns of the trajectory figures (associative task)")
+    parser.add_argument("--rho-A", type=float, nargs="+", default=[0.25, 0.5, 0.75],
+                        help="corr(A1, A2) = corr(A3, A4) columns (a-only / a-to-b task)")
+    parser.add_argument("--steps-per-block", type=int, default=STEPS_PER_BLOCK)
+    parser.add_argument("--objective", default="summed", choices=["summed", "independent"])
     parser.add_argument("--n-seeds", type=int, default=10)
     parser.add_argument("--lams", type=float, nargs="+", default=[0.0, 0.1, 1.0, 10.0])
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--ext", nargs="+", default=["pdf"])
     args = parser.parse_args()
 
-    rho_sBs = [1.0, 0.5]
+    rhos = args.rho_A if args.task in SINGLE_SLOT_TASKS else args.rho_sB
+    rho_label = r"\rho_{A}" if args.task in SINGLE_SLOT_TASKS else r"\rho_{sB}"
+    rho_sBs = sorted(set(rhos) | ({1.0, 0.5} if "regularization" in args.only else set()), reverse=True)
+    item_labels = ITEM_LABELS[args.task]
+    revisit_labels = [item_labels[i] for i in SCHEDULES["revisit"]]
     seeds = list(range(args.n_seeds))
     anchors = ["init", "block"]
     cfgs = set()
     for ro in args.readout:
-        for sched in ["revisit", "alternating"]:
+        for sched in ["revisit", "first16", "alternating"]:
             if sched in args.only:
-                cfgs |= {(r, ro, sched, 0.0, "init", s) for r in rho_sBs for s in seeds}
+                cfgs |= {(r, ro, sched, 0.0, "init", s) for r in rhos for s in seeds}
         if "regularization" in args.only:
             cfgs |= {(r, ro, sched, lam, a if lam > 0 else "init", s)
                      for r, sched, lam, a, s in itertools.product(rho_sBs, ["alternating", "revisit"],
                                                                   args.lams, anchors, seeds)}
     # longest runs first for better load balancing
-    cfgs = sorted(cfgs, key=lambda c: (-c[3], c[2] != "alternating"))
+    cfgs = [c + (args.task, args.steps_per_block, args.objective) for c in sorted(cfgs, key=lambda c: (-c[3], c[2] != "alternating"))]
     results = run_all(cfgs, args.workers)
 
     for ro in args.readout:
-        suffix = "" if ro == "trained" else "-fixed-readout"
-        out = lambda stem: [os.path.join(args.figures_dir, f"{stem}{suffix}.{e}") for e in args.ext]
+        prefix = "" if args.task == "associative" else f"{args.task}-"
+        suffix = ("" if ro == "trained" else "-fixed-readout") + \
+            ("" if args.steps_per_block == STEPS_PER_BLOCK else f"-{args.steps_per_block}steps") + \
+            ("" if args.objective == "summed" else "-independent")
+        out = lambda stem: [os.path.join(args.figures_dir, f"{prefix}{stem}{suffix}.{e}") for e in args.ext]
+        kw = dict(objective=args.objective)
         if "revisit" in args.only:
-            plot_trajectories(results, rho_sBs, ro, "revisit", seeds, out("revisit-trajectories"),
-                              block_labels=REVISIT_LABELS)
+            plot_trajectories(results, rhos, ro, "revisit", seeds, out("revisit-trajectories"),
+                              item_labels, rho_label, block_labels=revisit_labels, **kw)
+        if "first16" in args.only:
+            plot_trajectories(results, rhos, ro, "first16", seeds, out("first16-trajectories"),
+                              item_labels, rho_label, panel_mm=(50, 30), **kw)
         if "alternating" in args.only:
-            plot_trajectories(results, rho_sBs, ro, "alternating", seeds,
-                              out("alternating-trajectories"), panel_mm=(60, 30))
+            plot_trajectories(results, rhos, ro, "alternating", seeds,
+                              out("alternating-trajectories"), item_labels, rho_label, panel_mm=(60, 30), **kw)
         if "regularization" in args.only:
             for a in anchors:
                 plot_regularization(results, rho_sBs, ro, a, args.lams, seeds, out(f"reg-{a}-trajectories"))
                 plot_regularization(results, rho_sBs, ro, a, args.lams, seeds, out(f"reg-{a}-revisit"),
-                                    schedule_name="revisit", block_labels=REVISIT_LABELS)
+                                    schedule_name="revisit", block_labels=revisit_labels)
     if "regularization" in args.only:
         df = summarize(results, rho_sBs, args.readout, args.lams, anchors, seeds)
         os.makedirs(args.figures_dir, exist_ok=True)

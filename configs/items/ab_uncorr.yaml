@@ -1,0 +1,19 @@
+# @package _global_.items
+#
+# Sampled vectors, two groups of two A-B pairs: corr(A1, A2) = 0, B1 = B2
+# (rho_B = 1), nothing shared across groups. Exact Gram matrices.
+
+generation_mode: exact
+items:
+  - name: A
+    corr_within: 0.0
+    corr_between: 0.0
+    n_groups: 2
+    n_items: 2
+    dim: 64
+  - name: B
+    corr_within: 1.0
+    corr_between: 0.0
+    n_groups: 2
+    n_items: 2
+    dim: 64

@@ -20,6 +20,29 @@ Two stimulus types are supported:
     ``distance`` and ``bump_width`` (default 12°) are specified per subgroup
     and may be inherited from the item level.
 
+``"image"``
+    Each item is the embedding of one image from an image dataset (default:
+    CIFAR-100 through an ImageNet-pretrained ResNet-18, ``avgpool`` layer; see
+    :mod:`repulsion.stimgen.embeddings`). Instead of correlations, each
+    subgroup sets categorical relations:
+
+    ``within_group`` (items of one group)
+        ``same_image`` (one image, repeated), ``same_category`` (default;
+        distinct images of one class) or ``different_category`` (one image
+        from each of distinct classes).
+    ``across_groups`` (groups of one subgroup)
+        ``same_category`` (all groups share one class) or
+        ``different_category`` (default; each group has its own classes).
+        ``same_category`` requires ``within_group`` other than
+        ``different_category``.
+
+    Classes and images are never reused across groups, subgroups or item
+    types (except within a ``same_image`` group, or across groups with
+    ``across_groups: same_category``). ``categories`` (class names) restricts
+    the classes an item type may draw from. ``source`` picks the dataset,
+    split, model, weights, layer and pooling; ``dim`` follows from the layer.
+    Vectors are the raw features (no preprocessing), scaled by ``magnitude``.
+
 Correlation hierarchy for the ``"corr"`` type:
     - same group, same subgroup  → SubgroupSpec.corr_within
     - different group, same subgroup → SubgroupSpec.corr_between
@@ -36,11 +59,17 @@ Shorthand:
 Inheritance:
     Subgroup fields not explicitly set are inherited from the parent item dict.
     Fields that can be inherited: n_groups, n_items, magnitude, dim,
-    corr_within, corr_between, distance, bump_width.
+    corr_within, corr_between, distance, bump_width, within_group,
+    across_groups.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from repulsion.stimgen.embeddings import ImageSource, layer_dim, parse_source
+
+WITHIN_GROUP_RELATIONS = ("same_image", "same_category", "different_category")
+ACROSS_GROUP_RELATIONS = ("same_category", "different_category")
 
 
 @dataclass(frozen=True)
@@ -55,12 +84,12 @@ class SubgroupSpec:
     corr_between: float  # correlation between items in different groups (same subgroup)
     magnitude: float   # multiplicative scale applied to generated vectors
     dim: int           # vector dimensionality
-    # Circular stimulus fields (only used when ItemSpec.stimulus_type == "circular")
-    distance: float = 0.0    # angular distance (degrees) between successive items in a group
-    bump_width: float = 12.0  # Gaussian bump width (degrees, std dev)
-    # Circular stimulus type fields (None for corr-based)
+    # Circular stimulus type fields (None otherwise)
     distance: float | None = None    # angular distance (degrees) between sequential items
     bump_width: float | None = None  # Gaussian bump width (degrees, 1-sigma)
+    # Image stimulus type fields (None otherwise)
+    within_group: str | None = None   # same_image | same_category | different_category
+    across_groups: str | None = None  # same_category | different_category
 
 
 @dataclass(frozen=True)
@@ -77,7 +106,9 @@ class ItemSpec:
     subgroups: tuple[SubgroupSpec, ...]
     corr_between: float  # correlation between items from *different* subgroups
     dim: int
-    stimulus_type: str = "corr"  # "corr" or "circular"
+    stimulus_type: str = "corr"  # "corr", "circular" or "image"
+    source: ImageSource | None = None          # image type only
+    categories: tuple[str, ...] | None = None  # image type only: allowed class names
 
 
 # ---------------------------------------------------------------------------
@@ -122,111 +153,108 @@ def parse_items(items: list[dict], default_dim: int = 64) -> list[ItemSpec]:
     Args:
         items: List of dicts, each describing one item type. Required keys:
             ``name``, ``n_groups``. Optional keys: ``n_items`` (default 1),
-            ``corr`` / ``corr_within`` / ``corr_between`` (default 0),
-            ``magnitude`` (default 1.0), ``dim``, ``subgroups``.
+            ``magnitude`` (default 1.0), ``dim``, ``subgroups``,
+            ``stimulus_type`` (default ``"corr"``), plus the keys of that
+            stimulus type (see the module docstring).
         default_dim: Vector dimensionality used when ``dim`` is absent from
-            both the item dict and any subgroup dict.
+            both the item dict and any subgroup dict (not used by ``"image"``,
+            whose dim follows from the layer).
 
     Returns:
         One :class:`ItemSpec` per entry in *items*.
 
     Raises:
-        ValueError: For missing required fields, out-of-range correlations, or
-            inconsistent dims across subgroups of the same item type.
+        ValueError: For missing required fields, out-of-range correlations,
+            invalid relations, or inconsistent dims across subgroups of the
+            same item type.
     """
     specs: list[ItemSpec] = []
-
     for item_dict in items:
-        # --- Required fields ---
         name = item_dict.get("name")
         if not name:
             raise ValueError("Each item entry must have a 'name' field.")
         if "n_groups" not in item_dict:
             raise ValueError(f"Item '{name}' must specify 'n_groups'.")
-
-        # --- Item-level defaults ---
-        n_groups = int(item_dict["n_groups"])
-        n_items = int(item_dict.get("n_items", 1))
-        magnitude = float(item_dict.get("magnitude", 1.0))
-        dim = int(item_dict.get("dim", default_dim))
         stimulus_type = str(item_dict.get("stimulus_type", "corr"))
-
-        if stimulus_type not in {"corr", "circular"}:
+        if stimulus_type not in _PARSERS:
             raise ValueError(
-                f"Item '{name}': stimulus_type must be 'corr' or 'circular', "
+                f"Item '{name}': stimulus_type must be one of {sorted(_PARSERS)}, "
                 f"got {stimulus_type!r}."
             )
+        common = dict(
+            name=name,
+            n_groups=int(item_dict["n_groups"]),
+            n_items=int(item_dict.get("n_items", 1)),
+            magnitude=float(item_dict.get("magnitude", 1.0)),
+            dim=item_dict.get("dim", default_dim),  # None: not given (image dims follow the layer)
+        )
+        if common["n_groups"] < 1:
+            raise ValueError(f"Item '{name}': n_groups must be >= 1, got {common['n_groups']}.")
+        if common["n_items"] < 1:
+            raise ValueError(f"Item '{name}': n_items must be >= 1, got {common['n_items']}.")
+        if common["dim"] is not None:
+            common["dim"] = int(common["dim"])
+        elif stimulus_type != "image":
+            raise ValueError(f"Item '{name}': 'dim' is required (no default_dim given).")
+        specs.append(_PARSERS[stimulus_type](item_dict, **common))
+    return specs
 
-        if n_groups < 1:
-            raise ValueError(f"Item '{name}': n_groups must be >= 1, got {n_groups}.")
-        if n_items < 1:
-            raise ValueError(f"Item '{name}': n_items must be >= 1, got {n_items}.")
 
-        if stimulus_type == "circular":
-            item_bump_width = float(item_dict.get("bump_width", 12.0))
-            raw_subgroups = item_dict.get("subgroups") or []
-            if not raw_subgroups:
-                raise ValueError(
-                    f"Item '{name}': stimulus_type='circular' requires at least one "
-                    "subgroup with a 'distance' field."
-                )
-            n_subgroups = len(raw_subgroups)
-            if dim % (n_groups * n_subgroups) != 0:
-                raise ValueError(
-                    f"Item '{name}': for stimulus_type='circular', dim ({dim}) must be "
-                    f"evenly divisible by n_groups × n_subgroups "
-                    f"({n_groups} × {n_subgroups} = {n_groups * n_subgroups})."
-                )
-            resolved: list[SubgroupSpec] = []
-            for sg_dict in raw_subgroups:
-                sg_name = sg_dict.get("name")
-                if not sg_name:
-                    raise ValueError(
-                        f"Each subgroup of item '{name}' must have a 'name'."
-                    )
-                if "distance" not in sg_dict:
-                    raise ValueError(
-                        f"Item '{name}', subgroup '{sg_name}': "
-                        "stimulus_type='circular' requires a 'distance' field (degrees)."
-                    )
-                distance = float(sg_dict["distance"])
-                bump_width = float(sg_dict.get("bump_width", item_bump_width))
-                resolved.append(
-                    SubgroupSpec(
-                        item_name=name,
-                        subgroup_name=sg_name,
-                        n_groups=int(sg_dict.get("n_groups", n_groups)),
-                        n_items=int(sg_dict.get("n_items", n_items)),
-                        corr_within=0.0,
-                        corr_between=0.0,
-                        magnitude=float(sg_dict.get("magnitude", magnitude)),
-                        dim=dim,
-                        distance=distance,
-                        bump_width=bump_width,
-                    )
-                )
-            subgroups: tuple[SubgroupSpec, ...] = tuple(resolved)
-            specs.append(
-                ItemSpec(
-                    item_name=name,
-                    subgroups=subgroups,
-                    corr_between=0.0,
-                    dim=dim,
-                    stimulus_type="circular",
-                )
+def _parse_circular(item_dict: dict, name: str, n_groups: int, n_items: int,
+                    magnitude: float, dim: int | None) -> ItemSpec:
+    item_bump_width = float(item_dict.get("bump_width", 12.0))
+    raw_subgroups = item_dict.get("subgroups") or []
+    if not raw_subgroups:
+        raise ValueError(
+            f"Item '{name}': stimulus_type='circular' requires at least one "
+            "subgroup with a 'distance' field."
+        )
+    n_subgroups = len(raw_subgroups)
+    if dim % (n_groups * n_subgroups) != 0:
+        raise ValueError(
+            f"Item '{name}': for stimulus_type='circular', dim ({dim}) must be "
+            f"evenly divisible by n_groups × n_subgroups "
+            f"({n_groups} × {n_subgroups} = {n_groups * n_subgroups})."
+        )
+    resolved: list[SubgroupSpec] = []
+    for sg_dict in raw_subgroups:
+        sg_name = sg_dict.get("name")
+        if not sg_name:
+            raise ValueError(f"Each subgroup of item '{name}' must have a 'name'.")
+        if "distance" not in sg_dict:
+            raise ValueError(
+                f"Item '{name}', subgroup '{sg_name}': "
+                "stimulus_type='circular' requires a 'distance' field (degrees)."
             )
-            continue
+        resolved.append(
+            SubgroupSpec(
+                item_name=name,
+                subgroup_name=sg_name,
+                n_groups=int(sg_dict.get("n_groups", n_groups)),
+                n_items=int(sg_dict.get("n_items", n_items)),
+                corr_within=0.0,
+                corr_between=0.0,
+                magnitude=float(sg_dict.get("magnitude", magnitude)),
+                dim=dim,
+                distance=float(sg_dict["distance"]),
+                bump_width=float(sg_dict.get("bump_width", item_bump_width)),
+            )
+        )
+    return ItemSpec(item_name=name, subgroups=tuple(resolved), corr_between=0.0, dim=dim,
+                    stimulus_type="circular")
 
-        item_corr_within, item_corr_between = _read_corr(item_dict)
-        _check_corr(item_corr_within, f"item '{name}' corr_within")
-        _check_corr(item_corr_between, f"item '{name}' corr_between")
 
-        # --- Subgroups ---
-        raw_subgroups = item_dict.get("subgroups") or []
+def _parse_corr(item_dict: dict, name: str, n_groups: int, n_items: int,
+                magnitude: float, dim: int | None) -> ItemSpec:
+    item_corr_within, item_corr_between = _read_corr(item_dict)
+    _check_corr(item_corr_within, f"item '{name}' corr_within")
+    _check_corr(item_corr_between, f"item '{name}' corr_between")
 
-        if not raw_subgroups:
-            # No subgroups → single implicit "default" subgroup
-            sg = SubgroupSpec(
+    raw_subgroups = item_dict.get("subgroups") or []
+    if not raw_subgroups:
+        # No subgroups → single implicit "default" subgroup
+        subgroups: tuple[SubgroupSpec, ...] = (
+            SubgroupSpec(
                 item_name=name,
                 subgroup_name="default",
                 n_groups=n_groups,
@@ -235,52 +263,105 @@ def parse_items(items: list[dict], default_dim: int = 64) -> list[ItemSpec]:
                 corr_between=item_corr_between,
                 magnitude=magnitude,
                 dim=dim,
+            ),
+        )
+    else:
+        resolved: list[SubgroupSpec] = []
+        for sg_dict in raw_subgroups:
+            sg_name = sg_dict.get("name")
+            if not sg_name:
+                raise ValueError(f"Each subgroup of item '{name}' must have a 'name'.")
+
+            sg_corr_within, sg_corr_between = _read_corr(sg_dict, parent=item_dict)
+            _check_corr(sg_corr_within, f"item '{name}' subgroup '{sg_name}' corr_within")
+            _check_corr(sg_corr_between, f"item '{name}' subgroup '{sg_name}' corr_between")
+
+            resolved.append(
+                SubgroupSpec(
+                    item_name=name,
+                    subgroup_name=sg_name,
+                    n_groups=int(sg_dict.get("n_groups", n_groups)),
+                    n_items=int(sg_dict.get("n_items", n_items)),
+                    corr_within=sg_corr_within,
+                    corr_between=sg_corr_between,
+                    magnitude=float(sg_dict.get("magnitude", magnitude)),
+                    dim=int(sg_dict.get("dim", dim)),
+                )
             )
-            subgroups: tuple[SubgroupSpec, ...] = (sg,)
-        else:
-            resolved: list[SubgroupSpec] = []
-            for sg_dict in raw_subgroups:
-                sg_name = sg_dict.get("name")
-                if not sg_name:
-                    raise ValueError(
-                        f"Each subgroup of item '{name}' must have a 'name'."
-                    )
 
-                sg_corr_within, sg_corr_between = _read_corr(sg_dict, parent=item_dict)
-                _check_corr(sg_corr_within, f"item '{name}' subgroup '{sg_name}' corr_within")
-                _check_corr(sg_corr_between, f"item '{name}' subgroup '{sg_name}' corr_between")
+        # Validate dim consistency — required for joint generation
+        dims = {sg.dim for sg in resolved}
+        if len(dims) > 1:
+            raise ValueError(
+                f"Item '{name}': all subgroups must share the same 'dim' "
+                f"because they are generated jointly. Got dims: {dims}."
+            )
+        subgroups = tuple(resolved)
 
-                resolved.append(
-                    SubgroupSpec(
-                        item_name=name,
-                        subgroup_name=sg_name,
-                        n_groups=int(sg_dict.get("n_groups", n_groups)),
-                        n_items=int(sg_dict.get("n_items", n_items)),
-                        corr_within=sg_corr_within,
-                        corr_between=sg_corr_between,
-                        magnitude=float(sg_dict.get("magnitude", magnitude)),
-                        dim=int(sg_dict.get("dim", dim)),
-                    )
-                )
+    return ItemSpec(item_name=name, subgroups=subgroups, corr_between=item_corr_between,
+                    dim=subgroups[0].dim, stimulus_type="corr")
 
-            # Validate dim consistency — required for joint generation
-            dims = {sg.dim for sg in resolved}
-            if len(dims) > 1:
+
+def _parse_image(item_dict: dict, name: str, n_groups: int, n_items: int,
+                 magnitude: float, dim: int | None) -> ItemSpec:
+    source = parse_source(item_dict.get("source"), name)
+    dim = layer_dim(source)
+    raw_subgroups = item_dict.get("subgroups") or [{"name": "default"}]
+    for d in [item_dict, *raw_subgroups]:
+        if "dim" in d and int(d["dim"]) != dim:
+            raise ValueError(
+                f"Item '{name}': dim {d['dim']} does not match the {dim}-d features of "
+                f"{source.model} layer {source.layer!r}; leave 'dim' out for image items."
+            )
+        for key in ("corr", "corr_within", "corr_between"):
+            if key in d:
                 raise ValueError(
-                    f"Item '{name}': all subgroups must share the same 'dim' "
-                    f"because they are generated jointly. Got dims: {dims}."
+                    f"Item '{name}': image items set 'within_group'/'across_groups' "
+                    f"instead of {key!r}."
                 )
 
-            subgroups = tuple(resolved)
-
-        specs.append(
-            ItemSpec(
+    resolved: list[SubgroupSpec] = []
+    for sg_dict in raw_subgroups:
+        sg_name = sg_dict.get("name")
+        if not sg_name:
+            raise ValueError(f"Each subgroup of item '{name}' must have a 'name'.")
+        within = str(sg_dict.get("within_group", item_dict.get("within_group", "same_category")))
+        across = str(sg_dict.get("across_groups", item_dict.get("across_groups", "different_category")))
+        where = f"Item '{name}', subgroup '{sg_name}'"
+        if within not in WITHIN_GROUP_RELATIONS:
+            raise ValueError(f"{where}: within_group must be one of {WITHIN_GROUP_RELATIONS}, got {within!r}.")
+        if across not in ACROSS_GROUP_RELATIONS:
+            raise ValueError(f"{where}: across_groups must be one of {ACROSS_GROUP_RELATIONS}, got {across!r}.")
+        if within == "different_category" and across == "same_category":
+            raise ValueError(
+                f"{where}: across_groups='same_category' is impossible with "
+                "within_group='different_category' (the groups have no single category to share)."
+            )
+        resolved.append(
+            SubgroupSpec(
                 item_name=name,
-                subgroups=subgroups,
-                corr_between=item_corr_between,
-                dim=subgroups[0].dim,
-                stimulus_type="corr",
+                subgroup_name=sg_name,
+                n_groups=int(sg_dict.get("n_groups", n_groups)),
+                n_items=int(sg_dict.get("n_items", n_items)),
+                corr_within=0.0,
+                corr_between=0.0,
+                magnitude=float(sg_dict.get("magnitude", magnitude)),
+                dim=dim,
+                within_group=within,
+                across_groups=across,
             )
         )
+    categories = item_dict.get("categories")
+    return ItemSpec(
+        item_name=name,
+        subgroups=tuple(resolved),
+        corr_between=0.0,
+        dim=dim,
+        stimulus_type="image",
+        source=source,
+        categories=tuple(str(c) for c in categories) if categories is not None else None,
+    )
 
-    return specs
+
+# One parser per stimulus type: (item_dict, name, n_groups, n_items, magnitude, dim) -> ItemSpec
+_PARSERS = {"corr": _parse_corr, "circular": _parse_circular, "image": _parse_image}

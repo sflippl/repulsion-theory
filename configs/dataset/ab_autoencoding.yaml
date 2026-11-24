@@ -1,0 +1,40 @@
+# @package _global_.dataset
+#
+# Autoencoding of A-B pairs (input and output = [A, B]), plus A-only and
+# B-only inputs that are only used to read out representations.
+
+slots:
+  input:
+    A: A
+    B: B
+  output:
+    A: A
+    B: B
+
+tasks:
+  - name: autoencoding
+    input:
+      A:
+        magnitude: 1.0
+      B:
+        magnitude: 1.0
+    output:
+      A:
+        magnitude: 1.0
+      B:
+        magnitude: 1.0
+  # Evaluation only: hidden representations of A alone and of B alone.
+  - name: a_input
+    input:
+      A:
+        magnitude: 1.0
+    output:
+      A:
+        magnitude: 1.0
+  - name: b_input
+    input:
+      B:
+        magnitude: 1.0
+    output:
+      B:
+        magnitude: 1.0

@@ -18,7 +18,7 @@ import csv
 from logging import config
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
 import torch.nn.functional as F
@@ -154,6 +154,12 @@ class TrainingConfig:
             in separate-attention mode.
         attention_steps: Number of attention-parameter update steps per batch
             in separate-attention mode.
+        steps_per_batch: Number of optimiser steps taken on each batch before
+            moving to the next one (e.g. repeated learning on a single
+            presentation with ``batch_size = 1``).  A batch still counts as
+            one training step for logging and evaluation; the recorded loss
+            is the one before the batch's first update.  In separate-attention
+            mode the whole network/attention block is repeated.
         objective: ``"summed"`` (default) fits the sum of all streams' outputs
             to the target.  ``"independent"`` fits each stream's own output
             to the target and sums the per-stream losses.
@@ -167,6 +173,7 @@ class TrainingConfig:
     attention_momentum: float = 0.9
     network_steps: int = 1
     attention_steps: int = 1
+    steps_per_batch: int = 1
     objective: str = "summed"
 
     def __post_init__(self) -> None:
@@ -174,6 +181,8 @@ class TrainingConfig:
             raise ValueError(
                 f"objective must be 'summed' or 'independent'; got {self.objective!r}."
             )
+        if self.steps_per_batch < 1:
+            raise ValueError(f"steps_per_batch must be >= 1; got {self.steps_per_batch}.")
 
 
 @dataclass
@@ -254,42 +263,48 @@ def _do_step(
     optimizers: tuple,
     config: TrainingConfig,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """One or more optimiser steps; returns the final (loss, per_slot_losses)."""
-    loss: torch.Tensor
-    slot_losses: dict[str, float]
+    """``config.steps_per_batch`` rounds of optimiser steps on one batch.
 
-    if len(optimizers) == 1:
-        # Joint training
-        opt = optimizers[0]
-        opt.zero_grad()
-        loss, slot_losses = _model_loss(
-            model, x, y, weights, sample_ids, loss_spec, config.objective
-        )
+    Returns the (loss, per_slot_losses) before the batch's first update.
+    """
+    def batch_loss() -> tuple[torch.Tensor, dict[str, float]]:
+        return _model_loss(model, x, y, weights, sample_ids, loss_spec, config.objective)
+
+    return _repeat_steps(batch_loss, optimizers, config)
+
+
+def _repeat_steps(
+    batch_loss: Callable[[], tuple[torch.Tensor, dict[str, float]]],
+    optimizers: tuple,
+    config: TrainingConfig,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Run ``config.steps_per_batch`` rounds of updates on *batch_loss*; return the first loss."""
+    first: Optional[tuple[torch.Tensor, dict[str, float]]] = None
+
+    def step(opts_to_zero: tuple, opt: torch.optim.Optimizer) -> None:
+        nonlocal first
+        for o in opts_to_zero:
+            o.zero_grad()
+        loss, slot_losses = batch_loss()
         loss.backward()
         opt.step()
-    else:
-        # Separate attention training
-        net_opt, attn_opt = optimizers
+        if first is None:
+            first = (loss.detach(), slot_losses)
 
-        for _ in range(config.network_steps):
-            net_opt.zero_grad()
-            attn_opt.zero_grad()
-            loss, slot_losses = _model_loss(
-                model, x, y, weights, sample_ids, loss_spec, config.objective
-            )
-            loss.backward()
-            net_opt.step()
+    for _ in range(config.steps_per_batch):
+        if len(optimizers) == 1:
+            # Joint training
+            step(optimizers, optimizers[0])
+        else:
+            # Separate attention training
+            net_opt, attn_opt = optimizers
+            for _ in range(config.network_steps):
+                step(optimizers, net_opt)
+            for _ in range(config.attention_steps):
+                step(optimizers, attn_opt)
 
-        for _ in range(config.attention_steps):
-            net_opt.zero_grad()
-            attn_opt.zero_grad()
-            loss, slot_losses = _model_loss(
-                model, x, y, weights, sample_ids, loss_spec, config.objective
-            )
-            loss.backward()
-            attn_opt.step()
-
-    return loss, slot_losses
+    assert first is not None
+    return first
 
 
 def _do_joint_step(
@@ -304,62 +319,27 @@ def _do_joint_step(
 
     For each task, runs the model on that task's input and accumulates the
     weighted loss.  A single ``backward()`` is called on the sum so all
-    tasks share one gradient update.
+    tasks share one gradient update (repeated ``config.steps_per_batch`` times).
     """
     inputs = batch["inputs"].float().to(device)       # (batch, n_tasks, input_dim)
     outputs = batch["outputs"].float().to(device)     # (batch, n_tasks, output_dim)
     task_weights = batch["task_weights"].float().to(device)  # (batch, n_tasks)
     sample_ids = model.get_sample_ids(batch["row_index"], device)
 
-    n_tasks = inputs.shape[1]
-    total_loss: torch.Tensor = inputs.new_zeros(())
-    all_slot_losses: dict[str, float] = {}
+    def batch_loss() -> tuple[torch.Tensor, dict[str, float]]:
+        total_loss: torch.Tensor = inputs.new_zeros(())
+        all_slot_losses: dict[str, float] = {}
+        for ti in range(inputs.shape[1]):
+            task_loss, slot_losses = _model_loss(
+                model, inputs[:, ti, :], outputs[:, ti, :], task_weights[:, ti],
+                sample_ids, loss_spec, config.objective,
+            )
+            total_loss = total_loss + task_loss
+            for k, v in slot_losses.items():
+                all_slot_losses[k] = all_slot_losses.get(k, 0.0) + v
+        return total_loss, all_slot_losses
 
-    for ti in range(n_tasks):
-        x = inputs[:, ti, :]       # (batch, input_dim)
-        y = outputs[:, ti, :]      # (batch, output_dim)
-        w = task_weights[:, ti]    # (batch,)
-        task_loss, slot_losses = _model_loss(
-            model, x, y, w, sample_ids, loss_spec, config.objective
-        )
-        total_loss = total_loss + task_loss
-        for k, v in slot_losses.items():
-            all_slot_losses[k] = all_slot_losses.get(k, 0.0) + v
-
-    if len(optimizers) == 1:
-        opt = optimizers[0]
-        opt.zero_grad()
-        total_loss.backward()
-        opt.step()
-    else:
-        net_opt, attn_opt = optimizers
-        for _ in range(config.network_steps):
-            net_opt.zero_grad()
-            attn_opt.zero_grad()
-            # recompute to get fresh graph for each inner step
-            total_loss_inner: torch.Tensor = inputs.new_zeros(())
-            for ti in range(n_tasks):
-                tl, _ = _model_loss(
-                    model, inputs[:, ti, :], outputs[:, ti, :], task_weights[:, ti],
-                    sample_ids, loss_spec, config.objective,
-                )
-                total_loss_inner = total_loss_inner + tl
-            total_loss_inner.backward()
-            net_opt.step()
-        for _ in range(config.attention_steps):
-            net_opt.zero_grad()
-            attn_opt.zero_grad()
-            total_loss_inner = inputs.new_zeros(())
-            for ti in range(n_tasks):
-                tl, _ = _model_loss(
-                    model, inputs[:, ti, :], outputs[:, ti, :], task_weights[:, ti],
-                    sample_ids, loss_spec, config.objective,
-                )
-                total_loss_inner = total_loss_inner + tl
-            total_loss_inner.backward()
-            attn_opt.step()
-
-    return total_loss, all_slot_losses
+    return _repeat_steps(batch_loss, optimizers, config)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,28 @@
+# @package _global_.evaluation
+#
+# Logged at geometrically spaced steps (factor 1.1, plus step 0):
+#   representations_a / _b   hidden representations of A-only / B-only input
+#                            (all hidden layers, all streams; pairmate scores)
+#   output_autoencoding      outputs for the A-B pairs
+#   loss_autoencoding        per-slot losses
+
+evaluations:
+  - name: representations_a
+    task: a_input
+    save: representation
+    eval_every_log_steps: 1.1
+
+  - name: representations_b
+    task: b_input
+    save: representation
+    eval_every_log_steps: 1.1
+
+  - name: output_autoencoding
+    task: autoencoding
+    save: output
+    eval_every_log_steps: 1.1
+
+  - name: loss_autoencoding
+    task: autoencoding
+    save: loss
+    eval_every_log_steps: 1.1

@@ -1,0 +1,10 @@
+# @package _global_.schedule
+#
+# Full-batch autoencoding of all A-B pairs (one gradient step per epoch).
+# The learning rate is set by training.lr (see the ab_* experiments). 6000
+# epochs: some CIFAR draws (two very similar same-category images) converge slowly.
+
+component_type:
+  - component_type: autoencoding
+    epochs: 6000
+batch_size: null

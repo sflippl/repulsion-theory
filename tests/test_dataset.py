@@ -367,6 +367,28 @@ class TestCompatibilityValidation:
                 }],
             )
 
+    def test_subgroup_filter_allows_differing_subgroups(self):
+        """A task restricted to shared subgroups may combine item types that differ elsewhere."""
+        gen = ItemGenerator(
+            items=[
+                {"name": "scene", "corr_between": 0., "n_groups": 2, "n_items": 2,
+                 "subgroups": [{"name": "a"}, {"name": "b"}, {"name": "c"}]},
+                {"name": "face", "corr_between": 0., "n_groups": 2, "n_items": 2,
+                 "subgroups": [{"name": "b"}, {"name": "c"}]},
+            ],
+            default_dim=8,
+        )
+        item_set = gen.generate(np.random.default_rng(0))
+        slots = {"input": {"S": "scene", "F": "face"}, "output": {"S": "scene"}}
+        both = {"name": "both", "subgroups": ["b", "c"],
+                "input": {"S": {}, "F": {}}, "output": {"S": {}}}
+        scene_only = {"name": "scene_only", "input": {"S": {}}, "output": {"S": {}}}
+        collection = build_datasets(item_set, slots, [both, scene_only])
+        assert [r.subgroup for r in collection["both"].rows] == ["b"] * 4 + ["c"] * 4
+        assert len(collection["scene_only"].rows) == 12
+        with pytest.raises(ValueError, match="incompatible structures"):
+            build_datasets(item_set, slots, [{**both, "subgroups": None}])
+
     def test_task_with_no_active_slots_raises(self, item_set):
         with pytest.raises(ValueError, match="no active slots"):
             build_datasets(

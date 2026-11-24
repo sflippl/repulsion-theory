@@ -1,0 +1,20 @@
+# @package _global_.dataset
+#
+# Single-slot autoencoding of image items (use with items=cifar100_resnet).
+
+slots:
+  input:
+    Image: image
+  output:
+    Image: image
+
+tasks:
+  - name: autoencoding
+    input:
+      Image:
+        magnitude: 1.0
+        manipulation: default
+    output:
+      Image:
+        magnitude: 1.0
+        manipulation: default

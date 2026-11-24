@@ -7,6 +7,8 @@ any optimizer known to :func:`repulsion.training._build_optimizer`.
 ``objective`` mirrors :class:`repulsion.training.TrainingConfig`:
 ``"summed"`` fits the sum of the streams' outputs to the target,
 ``"independent"`` fits each stream's own output and sums the per-stream losses.
+``steps_per_batch`` repeats the update on each batch (as in the main trainer:
+a batch still counts as one step, and its loss is recorded before the first update).
 
 Evaluation is a user-supplied ``eval_fn(model, probe)`` run at step 0 and then
 either every ``eval_every_steps`` steps or on the geometric schedule used by
@@ -40,10 +42,13 @@ class TrainConfig:
     eval_every_log_steps: Optional[float] = 1.01
     log_every_epochs: int = 10
     objective: str = "summed"  # or "independent"
+    steps_per_batch: int = 1
 
     def __post_init__(self) -> None:
         if self.objective not in ("summed", "independent"):
             raise ValueError(f"objective must be 'summed' or 'independent'; got {self.objective!r}.")
+        if self.steps_per_batch < 1:
+            raise ValueError(f"steps_per_batch must be >= 1; got {self.steps_per_batch}.")
 
 
 @dataclass
@@ -135,11 +140,13 @@ def train(
         for start in range(0, n, batch_size):
             maybe_eval(step)
             idx = order[start:start + batch_size]
-            loss = _objective_loss(model, X[idx], Y[idx], cfg)
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-            losses[step - step_offset] = loss.item()
+            for i in range(cfg.steps_per_batch):
+                loss = _objective_loss(model, X[idx], Y[idx], cfg)
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+                if i == 0:
+                    losses[step - step_offset] = loss.item()
             step += 1
         if cfg.log_every_epochs and (epoch + 1) % cfg.log_every_epochs == 0:
             log.info(

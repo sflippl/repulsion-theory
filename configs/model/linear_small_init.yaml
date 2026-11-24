@@ -1,0 +1,13 @@
+# @package _global_.model
+#
+# Single network, one hidden layer of 128 linear units, small initialization:
+# weight std = init_scale / sqrt(width), so W1^T W1 ~ init_scale^2 I, i.e. the
+# theory's 2*gamma = 0.01 (gamma = 0.005) at init_scale 0.1.
+
+networks:
+  - name: model
+    hidden_sizes: [128]
+    activation: identity
+    init_scale: 0.1
+    attention_layer: false
+    fixed_projection: false

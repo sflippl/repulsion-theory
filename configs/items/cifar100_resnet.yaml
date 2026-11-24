@@ -1,0 +1,34 @@
+# @package _global_.items
+#
+# Image items: each item is the embedding of one CIFAR-100 image through an
+# ImageNet-pretrained ResNet (raw features, no preprocessing). Only the chosen
+# images are embedded; see src/repulsion/stimgen/embeddings.py.
+#
+# within_group:  same_image | same_category | different_category
+# across_groups: same_category | different_category
+# (across_groups: same_category is not allowed with within_group: different_category)
+#
+# dim follows from source.layer (resnet18: layer1 64, layer2 128, layer3 256,
+# layer4 512, avgpool 512, fc 1000; spatial layers are average-pooled unless
+# source.pool: flatten).
+
+items:
+  - name: image
+    stimulus_type: image
+    source:
+      dataset: cifar100
+      split: train
+      model: resnet18     # resnet18 | resnet34 | resnet50 | resnet101 | resnet152
+      weights: DEFAULT    # torchvision weights name (DEFAULT = IMAGENET1K_V1 for resnet18)
+      layer: avgpool      # layer1 | layer2 | layer3 | layer4 | avgpool | fc
+      pool: avg           # avg | flatten (spatial layers only)
+    n_groups: 6
+    n_items: 2
+    across_groups: different_category
+    subgroups:
+      - name: same_image
+        within_group: same_image
+      - name: same_category
+        within_group: same_category
+      - name: different_category
+        within_group: different_category

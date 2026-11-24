@@ -1,0 +1,22 @@
+# @package _global_.evaluation
+#
+# Logged at geometrically spaced steps (factor 1.1, plus step 0):
+#   representations_a   hidden representations of A (all hidden layers; pairmate scores)
+#   output_prediction   predicted B
+#   loss_prediction     loss
+
+evaluations:
+  - name: representations_a
+    task: a_input
+    save: representation
+    eval_every_log_steps: 1.1
+
+  - name: output_prediction
+    task: prediction
+    save: output
+    eval_every_log_steps: 1.1
+
+  - name: loss_prediction
+    task: prediction
+    save: loss
+    eval_every_log_steps: 1.1

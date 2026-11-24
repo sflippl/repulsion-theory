@@ -1,11 +1,18 @@
+source "$(dirname "$0")/steps_per_batch.sh"
 MODELS=("complete_model_linear")
 EXPERIMENTS=("chanales2017")
 OBJECTIVES=("summed" "independent")
 
-for model in "${MODELS[@]}"; do
-    for experiment in "${EXPERIMENTS[@]}"; do
-        for objective in "${OBJECTIVES[@]}"; do
-            python train.py model="${model}" +experiments="${experiment}" training.objective="${objective}" seed=$(seq -s, 0 39) hydra.sweep.dir="data/${experiment}/${objective}/${model}/${seed}" hydra/launcher=cpu training.lr=0.1 training.momentum=0.5 --multirun
+for steps in "${STEPS_PER_BATCH[@]}"; do
+    steps_variant "$steps"
+    for model in "${MODELS[@]}"; do
+        for experiment in "${EXPERIMENTS[@]}"; do
+            for objective in "${OBJECTIVES[@]}"; do
+                python train.py model="${model}" +experiments="${experiment}" training.objective="${objective}" seed=$(seq -s, 0 39) hydra.sweep.dir="data/${experiment}${STEPS_SUFFIX}/${objective}/${model}" hydra/launcher=cpu "${STEPS_ARGS[@]}" --multirun
+            done
         done
     done
 done
+
+# Once all jobs have finished:
+#   python scripts/plot_chanales2017.py data/chanales2017*/*/* --readout both

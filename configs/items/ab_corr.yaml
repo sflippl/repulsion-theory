@@ -1,0 +1,21 @@
+# @package _global_.items
+#
+# Sampled vectors, two groups of two A-B pairs: corr = 0.5 between all A items
+# (within and across groups), B1 = B2 within a group (rho_B = 1), B uncorrelated
+# across groups. Exact Gram matrices. Vector analogue of CIFAR A items with
+# different categories within and across groups.
+
+generation_mode: exact
+items:
+  - name: A
+    corr_within: 0.5
+    corr_between: 0.5
+    n_groups: 2
+    n_items: 2
+    dim: 64
+  - name: B
+    corr_within: 1.0
+    corr_between: 0.0
+    n_groups: 2
+    n_items: 2
+    dim: 64

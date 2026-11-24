@@ -65,6 +65,8 @@ class Item:
     magnitude: float
     dim: int
     angle: float | None = None  # ground-truth angle in degrees; set for circular items only
+    category: str | None = None     # image class name; set for image items only
+    image_index: int | None = None  # index of the image in its dataset split; image items only
 
     def __repr__(self) -> str:  # noqa: D401
         return (
@@ -237,19 +239,13 @@ class ItemGenerator:
             rng = np.random.default_rng()
 
         all_items: list[Item] = []
+        context: dict = {}  # shared by all item types (image types: unused classes/images)
 
         for item_spec in self.item_specs:
-            if item_spec.stimulus_type == "circular":
-                raw_vectors, raw_angles = generate_circular_items(item_spec, rng)
-            elif self.generation_mode == "sampled":
-                C = build_item_corr_matrix(item_spec)
-                raw_vectors = sample_from_corr_matrix(C, item_spec.dim, rng, self.psd_eps)
-            else:
-                C = build_item_corr_matrix(item_spec)
-                raw_vectors = exact_from_corr_matrix(C, item_spec.dim, self.psd_eps)
+            generate = _GENERATORS[item_spec.stimulus_type]
+            raw_vectors, meta = generate(self, item_spec, rng, context)
 
             # Assemble Item objects in the same row order as the matrix
-            is_circular = item_spec.stimulus_type == "circular"
             row = 0
             for sg in item_spec.subgroups:
                 for g_idx in range(sg.n_groups):
@@ -265,9 +261,38 @@ class ItemGenerator:
                                 item_id=i_idx + 1,
                                 magnitude=sg.magnitude,
                                 dim=sg.dim,
-                                angle=float(raw_angles[row]) if is_circular else None,
+                                **meta[row],
                             )
                         )
                         row += 1
 
         return ItemSet(all_items)
+
+
+# ---------------------------------------------------------------------------
+# One generation function per stimulus type:
+#   (generator, item_spec, rng, context) -> (vectors (N, dim), per-row metadata dicts)
+# Metadata keys are optional Item fields (angle, category, image_index).
+# ---------------------------------------------------------------------------
+
+def _generate_corr(gen: ItemGenerator, item_spec: ItemSpec, rng, context):
+    C = build_item_corr_matrix(item_spec)
+    if gen.generation_mode == "sampled":
+        vectors = sample_from_corr_matrix(C, item_spec.dim, rng, gen.psd_eps)
+    else:
+        vectors = exact_from_corr_matrix(C, item_spec.dim, gen.psd_eps)
+    return vectors, [{}] * len(vectors)
+
+
+def _generate_circular(gen: ItemGenerator, item_spec: ItemSpec, rng, context):
+    vectors, angles = generate_circular_items(item_spec, rng)
+    return vectors, [{"angle": float(a)} for a in angles]
+
+
+def _generate_image(gen: ItemGenerator, item_spec: ItemSpec, rng, context):
+    from repulsion.stimgen.image_items import generate_image_items
+
+    return generate_image_items(item_spec, rng, context)
+
+
+_GENERATORS = {"corr": _generate_corr, "circular": _generate_circular, "image": _generate_image}

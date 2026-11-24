@@ -11,4 +11,5 @@ attention_lr: 1.0e-1
 attention_momentum: 0.9
 network_steps: 1
 attention_steps: 1
+steps_per_batch: 1
 objective: summed

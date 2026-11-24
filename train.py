@@ -119,6 +119,9 @@ def main(cfg: DictConfig) -> None:
                 "subgroup":  it.subgroup,
                 "group_id":  it.group_id,
                 "item_id":   it.item_id,
+                # image items: which image each vector is the embedding of
+                **({"category": it.category, "image_index": it.image_index}
+                   if it.image_index is not None else {}),
             }
             for it in item_set
             if it.item_type in _vector_types

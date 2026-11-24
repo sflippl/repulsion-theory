@@ -102,7 +102,7 @@ def simple_model(collection):
 
 class TestActivations:
     def test_all_names_in_registry(self):
-        assert {"sigmoid", "relu", "leaky_relu", "kwta", "identity"} == set(ACTIVATIONS)
+        assert {"sigmoid", "tanh", "relu", "leaky_relu", "kwta", "identity"} == set(ACTIVATIONS)
 
     def test_build_activation_unknown_raises(self):
         with pytest.raises(ValueError, match="Unknown activation"):
@@ -185,6 +185,56 @@ class TestRandomProjection:
     def test_slot_grouped_requires_output_at_least_num_slots(self):
         with pytest.raises(ValueError, match="number of slots"):
             RandomProjection(input_dim=32, output_dim=1, slot_dims=[16, 16])
+
+    @pytest.mark.parametrize("activation, kwargs", [
+        ("identity", {}),
+        ("relu", {}),
+        ("kwta", {"frac": 0.1}),
+        ("kwta", {"frac": 0.003}),
+    ])
+    def test_normalize_matches_input_norm(self, activation, kwargs):
+        """Normalized projection: E||proj(x)||^2 = ||x||^2, averaged over draws."""
+        torch.manual_seed(0)
+        x = torch.randn(1, 64)
+        x = x / x.norm()
+        sq_norms = [
+            RandomProjection(64, 2000, activation=activation, normalize=True, **kwargs)(x).pow(2).sum().item()
+            for _ in range(50)
+        ]
+        assert abs(sum(sq_norms) / len(sq_norms) - 1.0) < 0.05
+
+    @pytest.mark.parametrize("scales", [(1.0, 1.0), (1.0, 0.0), (2.0, 0.5)])
+    def test_normalize_slot_grouped_per_slot(self, scales):
+        """Normalized slot-grouped projection keeps each slot's norm, including
+        empty slots and slots of unequal norm."""
+        torch.manual_seed(0)
+        proj = RandomProjection(48, 4000, activation="kwta", slot_dims=[16, 32], normalize=True, frac=0.01)
+        slots = [s * torch.nn.functional.normalize(torch.randn(500, d), dim=-1)
+                 for s, d in zip(scales, [16, 32])]
+        out = proj(torch.cat(slots, dim=-1))
+        blocks = torch.split(out, proj.slot_output_dims, dim=-1)
+        for s, block in zip(scales, blocks):
+            assert abs(block.pow(2).sum(-1).mean().item() - s ** 2) < 0.05 * max(s ** 2, 1.0)
+
+    def test_normalize_slot_grouped_kwta_per_slot(self):
+        """With normalize, kWTA picks k = frac * block width winners in every block."""
+        torch.manual_seed(0)
+        proj = RandomProjection(32, 200, activation="kwta", slot_dims=[16, 16], normalize=True, frac=0.1)
+        out = proj(torch.randn(5, 32))
+        for block in torch.split(out, proj.slot_output_dims, dim=-1):
+            assert torch.all((block != 0).sum(-1) == 10)
+
+    def test_slot_grouped_without_normalize_uses_global_kwta(self):
+        """Without normalize, kWTA still competes across all blocks (unchanged behaviour)."""
+        torch.manual_seed(0)
+        proj = RandomProjection(32, 200, activation="kwta", slot_dims=[16, 16], frac=0.1)
+        x = torch.cat([torch.randn(5, 16), torch.zeros(5, 16)], dim=-1)
+        out = proj(x)
+        assert torch.all((out[:, :100] != 0).sum(-1) == 20)
+
+    def test_normalize_rejects_non_homogeneous_activation(self):
+        with pytest.raises(ValueError, match="Cannot normalize"):
+            RandomProjection(16, 64, activation="sigmoid", normalize=True)
 
 
 # ===========================================================================
@@ -578,6 +628,75 @@ class TestTrainSchedule:
         history = train_schedule(model, collection, schedule, TrainingConfig())
         assert isinstance(history, TrainingHistory)
         assert all(len(p.steps) > 0 for p in history.phases)
+
+
+class TestObjective:
+    def _two_stream(self, collection):
+        torch.manual_seed(0)
+        return parse_model_spec(
+            [{"name": "a", "input": ["Face1", "Object"], "output": ["Face1", "Object"]},
+             {"name": "b", "input": ["Face1", "Object"], "output": ["Face1", "Object"]}],
+            collection,
+        )
+
+    def test_independent_loss_is_sum_of_per_stream_losses(self, collection):
+        from repulsion.training import _model_loss
+        model = self._two_stream(collection)
+        loss_spec = build_loss_spec(collection)
+        ds = collection["autoencoding"]
+        x = torch.tensor(ds.input, dtype=torch.float32)
+        y = torch.tensor(ds.output, dtype=torch.float32)
+        w = torch.ones(len(ds.rows))
+        loss, _ = _model_loss(model, x, y, w, None, loss_spec, "independent")
+        expected = sum(compute_loss(net(x), y, w, loss_spec)[0] for net in model.networks)
+        assert torch.isclose(loss, expected)
+        summed, _ = _model_loss(model, x, y, w, None, loss_spec, "summed")
+        assert torch.isclose(summed, compute_loss(model(x), y, w, loss_spec)[0])
+        assert not torch.isclose(loss, summed)
+
+    def test_independent_training_runs(self, collection):
+        model = self._two_stream(collection)
+        schedule = build_training_schedule(
+            {"component_type": "autoencoding", "epochs": 20, "batch_size": None},
+            available_tasks=collection.task_names(),
+        )
+        history = train_schedule(
+            model, collection, schedule, TrainingConfig(lr=1e-2, objective="independent")
+        )
+        losses = [s.total_loss for s in history.phases[0].steps]
+        assert losses[-1] < losses[0]
+
+    def test_unknown_objective_raises(self):
+        with pytest.raises(ValueError, match="objective"):
+            TrainingConfig(objective="bananas")
+
+
+class TestStepsPerBatch:
+    def _train(self, collection, epochs, steps_per_batch):
+        torch.manual_seed(0)
+        model = parse_model_spec(
+            [{"name": "net", "input": ["Face1"], "output": ["Face1"]}], collection,
+        )
+        schedule = build_training_schedule(
+            {"component_type": "autoencoding", "epochs": epochs, "batch_size": None},
+            available_tasks=collection.task_names(),
+        )
+        cfg = TrainingConfig(lr=1e-2, momentum=0.0, steps_per_batch=steps_per_batch)
+        history = train_schedule(model, collection, schedule, cfg)
+        return model, history.phases[0].steps
+
+    def test_repeated_steps_match_repeated_full_batch_epochs(self, collection):
+        repeated, rep_steps = self._train(collection, epochs=1, steps_per_batch=3)
+        epochs, ep_steps = self._train(collection, epochs=3, steps_per_batch=1)
+        # a batch counts as one step, logged with the loss before its first update
+        assert len(rep_steps) == 1 and len(ep_steps) == 3
+        assert np.isclose(rep_steps[0].total_loss, ep_steps[0].total_loss)
+        for a, b in zip(repeated.parameters(), epochs.parameters()):
+            assert torch.allclose(a, b, atol=1e-6)
+
+    def test_invalid_steps_per_batch_raises(self):
+        with pytest.raises(ValueError, match="steps_per_batch"):
+            TrainingConfig(steps_per_batch=0)
 
 
 # ===========================================================================
