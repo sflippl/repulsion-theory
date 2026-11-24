@@ -190,18 +190,24 @@ def _feature_extractor(model_name: str, weights_name: str, layer: str):
 
 
 def _run_model(source: ImageSource, images: np.ndarray, batch_size: int = 64) -> np.ndarray:
-    """Features (len(images), dim) of uint8 HWC images, preprocessed as for the weights."""
+    """Features (len(images), dim) of uint8 HWC images, preprocessed as for the weights.
+
+    Arrays cross between NumPy and torch via .tolist() rather than
+    torch.from_numpy / .numpy(), which fail when torch was built against a
+    different NumPy major version (as in repulsion.torch_data).
+    """
     import torch
 
     extractor, transform, device = _feature_extractor(source.model, _resolved_weights(source).name, source.layer)
     out = []
     with torch.no_grad():
         for start in range(0, len(images), batch_size):
-            x = torch.from_numpy(images[start:start + batch_size]).permute(0, 3, 1, 2)
+            batch = images[start:start + batch_size]
+            x = torch.tensor(batch.tolist(), dtype=torch.uint8).permute(0, 3, 1, 2)
             h = extractor(transform(x).to(device))["out"]
             if h.ndim == 4:
                 h = h.mean(dim=(2, 3)) if source.pool == "avg" else h.flatten(1)
-            out.append(h.cpu().numpy().astype(np.float32))
+            out.append(np.array(h.cpu().tolist(), dtype=np.float32))
     features = np.concatenate(out)
     if features.shape[1] != layer_dim(source):
         raise RuntimeError(f"Expected {layer_dim(source)}-d features from {source}, got {features.shape[1]}.")

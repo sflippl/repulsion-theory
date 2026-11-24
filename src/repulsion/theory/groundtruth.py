@@ -9,7 +9,8 @@ product-of-matrices deep linear network, exactly as given in the spec:
     R = X^(j)T (Y - sum_j X^(j) Z_{1:L_j}^(j))
 
 Two initializations are supported for every stream: "exact" (the theory's own
-idealized init -- hidden layers = gamma*I_n, readout = 0) and "random" (small
+idealized init -- hidden layers = sqrt(gamma)*I_n, i.e. weight variance gamma,
+readout = 0) and "random" (small
 random weights), so predictions can be checked for robustness to init choice.
 
 This is deliberately the *reduced* (n x n matrix) system, not a literal wide
@@ -32,8 +33,8 @@ import numpy as np
 
 
 def init_exact_weights(gamma: float, n: int, L: int):
-    """Hidden layers = gamma * I_n, readout (last layer) = 0. All (n, n)."""
-    weights = [gamma * np.eye(n) for _ in range(L - 1)]
+    """Hidden layers = sqrt(gamma) * I_n (W^T W = gamma I), readout (last layer) = 0. All (n, n)."""
+    weights = [np.sqrt(gamma) * np.eye(n) for _ in range(L - 1)]
     weights.append(np.zeros((n, n)))
     return weights
 

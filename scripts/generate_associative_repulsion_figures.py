@@ -25,6 +25,9 @@ Use --only to (re)generate a subset while iterating.
 Usage:
     python scripts/generate_associative_repulsion_figures.py
     python scripts/generate_associative_repulsion_figures.py --only threshold-plot regions
+
+gamma is the initial weight variance throughout: W_1(0) = sqrt(gamma) * P
+(orthogonal P), i.e. W_1(0)^T W_1(0) = gamma * I.
 """
 from __future__ import annotations
 
@@ -100,12 +103,12 @@ def build_associative_repulsion_data(rho_sA, rho_sB, phi_in, phi_out, G=2, M=2, 
 
 
 class TwoLayerLinear(nn.Module):
-    """f(x) = x @ W1 @ W2, with W1(0) = sqrt(2*gamma) * P (orthogonal, via
+    """f(x) = x @ W1 @ W2, with W1(0) = sqrt(gamma) * P (gamma = initial weight variance; orthogonal, via
     QR of a random Gaussian matrix) and W2(0) = 0."""
 
     def __init__(self, D_in, d_hidden, D_out, gamma, gen, dtype=torch.float64):
         super().__init__()
-        Gamma = float(np.sqrt(2 * gamma))
+        Gamma = float(np.sqrt(gamma))
         P1 = orthogonal_stiefel(D_in, d_hidden, gen).to(dtype)
         self.W1 = nn.Parameter(Gamma * P1)
         self.W2 = nn.Parameter(torch.zeros(d_hidden, D_out, dtype=dtype))
@@ -207,17 +210,17 @@ def eigs_to_a(lam1, lam2, lam3, G, M):
 def learnedreps_eigenvalues(x, y, z, c, gamma):
     """
     x,y,z,c: eigenvalues of K_X, K_Y, K_Z, Z X^T (shared eigenbasis).
-    lambda_i(H H^T) = 2*gamma*z_i + (c_i^2/x_i)*(sqrt(y_i/x_i+gamma^2)-gamma)
+    lambda_i(H H^T) = gamma*z_i + (c_i^2/x_i)*(sqrt(y_i/x_i+gamma^2/4)-gamma/2)
     (second term is 0 wherever x_i==0).
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     z = np.asarray(z, dtype=float)
     c = np.asarray(c, dtype=float)
-    out = 2 * gamma * z
+    out = gamma * z
     mask = x > 0
     xs = np.where(mask, x, 1.0)
-    out = np.where(mask, out + (c**2 / xs) * (np.sqrt(y / xs + gamma**2) - gamma), out)
+    out = np.where(mask, out + (c**2 / xs) * (np.sqrt(y / xs + gamma**2 / 4) - gamma / 2), out)
     return out
 
 
@@ -225,7 +228,7 @@ def learnedreps_associative_repulsion(rho_sA, rho_sB, phi_in, phi_out, gamma, G=
     """
     Closed-form a1, a2, a3 of the learned representation H H^T at the
     (single) hidden layer of a one-hidden-layer, both-layers-trained
-    network, gamma convention W_1(0)=sqrt(2*gamma)*P.
+    network, gamma = initial weight variance: W_1(0)=sqrt(gamma)*P.
 
     IMPORTANT (bug we found and fixed): the cross-term eigenvalues
     lambda(Z X^T) are sqrt(phi_in) * (1+(M-1)*rho_sA, ..., 1-rho_sA) -- the
@@ -321,10 +324,10 @@ def pairmate_score(rho_sA, rho_sB, phi_in, phi_out, gamma, M=2):
     Q_A = 1 + (M - 1) * rho_sA
     q_in = 1 + (M - 1) * s_in
     q_out = 1 + (M - 1) * s_out
-    f = lambda x: x / (np.sqrt(x + gamma**2) + gamma)  # numerically stable sqrt(x+g^2)-g
+    f = lambda x: x / (np.sqrt(x + gamma**2 / 4) + gamma / 2)  # numerically stable sqrt(x+g^2/4)-g/2
 
-    lam12 = 2 * gamma * Q_A + (phi_in * Q_A**2 / q_in) * f(q_out / q_in)
-    lam3 = 2 * gamma * (1 - rho_sA) + (phi_in * (1 - rho_sA)**2 / (1 - s_in)) * f((1 - s_out) / (1 - s_in))
+    lam12 = gamma * Q_A + (phi_in * Q_A**2 / q_in) * f(q_out / q_in)
+    lam3 = gamma * (1 - rho_sA) + (phi_in * (1 - rho_sA)**2 / (1 - s_in)) * f((1 - s_out) / (1 - s_in))
 
     a2 = (lam12 - lam3) / M
     a1 = (lam12 + (M - 1) * lam3) / M
@@ -348,13 +351,13 @@ def score_predictive(rho_sA, rho_sB):
 def PS_AE(gamma):
     """Pairmate score of the autoencoder (phi_in=phi_out=0.5) at
     rho_sA=0, rho_sB=1, as a function of gamma."""
-    return -1 / (2 + 6 * gamma * np.sqrt(1 + gamma**2) + 6 * gamma**2)
+    return -1 / (2 + 3 * gamma * np.sqrt(1 + gamma**2 / 4) + 1.5 * gamma**2)
 
 
 def PS_PN(gamma):
     """Pairmate score of the predictive network (phi_in=1, phi_out=0) at
     rho_sA=0, rho_sB=1, as a function of gamma."""
-    return 1 / (1 + 2 * gamma * np.sqrt(2 + gamma**2) + 2 * gamma**2)
+    return 1 / (1 + gamma * np.sqrt(2 + gamma**2 / 4) + gamma**2 / 2)
 
 
 def phi_out_threshold(phi_in, gamma):
@@ -363,8 +366,8 @@ def phi_out_threshold(phi_in, gamma):
     p = np.asarray(phi_in, dtype=float)
     E = p**2 - 2 * p + 2
     D = 3 * p**2 - 6 * p + 4
-    R = np.sqrt(D + gamma**2 * E**2) + gamma * E
-    return p**2 * (p + 2 * gamma * R) / R**2
+    R = np.sqrt(D + gamma**2 * E**2 / 4) + gamma * E / 2
+    return p**2 * (p + gamma * R) / R**2
 
 
 def phi_repulsion_boundary_v1(phi, rho):

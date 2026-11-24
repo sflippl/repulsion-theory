@@ -12,8 +12,8 @@ rho_sB1: 0.0
 rho_sB2: 0.0
 phi_in: 1.0
 phi_out: 0.0
-gamma1: 1e-6
-gamma2: 1e-6
+gamma1: 1e-12  # initial weight variance (W^T W = gamma I)
+gamma2: 1e-12
 eta1: 1.0
 eta2: 1.0
 alpha: null

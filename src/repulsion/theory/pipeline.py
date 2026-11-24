@@ -1,8 +1,8 @@
 """Section 8 special-case parameter grids and the sweep driver.
 
 Two architectures throughout: A = (L1, L2) = (2, 2); B = (L1, L2) = (2, 3).
-G = M = 2 (N = 4) throughout, matching the spec. gamma -> 0 is approximated
-by a small positive proxy (1e-6).
+G = M = 2 (N = 4) throughout, matching the spec. gamma (initial weight
+variance) -> 0 is approximated by a small positive proxy (1e-12).
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from repulsion.theory.representation import multistream_repulsion
 
 G_DEFAULT = 2
 M_DEFAULT = 2
-GAMMA_ZERO = 1e-6
+GAMMA_ZERO = 1e-12  # weight variance; hidden-layer scale sqrt(gamma) = 1e-6
 
 ARCHITECTURES = {"A": [2, 2], "B": [2, 3]}
 ALPHAS = [0.003, 0.01, 0.03, 0.1]
@@ -64,7 +64,7 @@ def _case1_points():
 
 
 def _case2_points():
-    gamma_range = [1e-6, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
+    gamma_range = [GAMMA_ZERO, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
     eta_ratios = [1, 3, 10, 100, 1000, 1e5, 1e7]
     rho_sA1 = 0.5
     points = []

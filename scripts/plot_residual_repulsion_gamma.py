@@ -3,8 +3,9 @@ gamma (no simulations), for the dense and kWTA-sparse streams at convergence
 and depths L = 2, ..., 5 (L weight layers, both streams the same depth).
 
 Theory as in notebooks/residual_repulsion.ipynb (compute_one_setting with
-phi_in = phi_out = 1, eta = 1, G = M = 2; hidden layers W(0) = sqrt(2*gamma)*P,
-readout 0), which covers L <= 3. In one mode, with Gamma = sqrt(2*gamma), the
+phi_in = phi_out = 1, eta = 1, G = M = 2; gamma = initial weight variance:
+hidden layers W(0) = sqrt(gamma)*P, readout 0), which covers L <= 3. In one
+mode, with Gamma = sqrt(gamma), the
 readout strength A and each hidden layer's strength B satisfy
     B^2 - A^2 = Gamma^2,  p = B^(L-1) * A,  dA/dz = B^(L-1),
 where z = sigma * mu and mu is shared by the streams. With u = A/Gamma this is
@@ -118,7 +119,7 @@ def solve_mode(sigmas, gamma, L):
     Bisection on log(u) of the stream with the larger sigma, so that a winner
     with F_L(u) almost at its bound and a finite loser are both well resolved.
     """
-    Gamma = mp.sqrt(2 * mp.mpf(gamma))
+    Gamma = mp.sqrt(mp.mpf(gamma))
     win = int(sigmas[1] > sigmas[0])
     ratio = sigmas[1 - win] / sigmas[win]
 
@@ -144,7 +145,7 @@ def solve_mode(sigmas, gamma, L):
 
 def pairmate_scores(lams, gamma, L):
     """Pairmate score of each stream, from its 3 modes (lams: 2 x 3 eigenvalues)."""
-    Gamma2 = 2 * mp.mpf(gamma)
+    Gamma2 = mp.mpf(gamma)
     l = [[None] * 3 for _ in lams]
     for m in range(3):
         mode_lams = [mp.mpf(float(lam[m])) for lam in lams]
