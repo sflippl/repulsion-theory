@@ -120,7 +120,7 @@ def main(cfg: DictConfig) -> None:
                 "group_id":  it.group_id,
                 "item_id":   it.item_id,
                 # image items: which image each vector is the embedding of
-                **({"category": it.category, "image_index": it.image_index}
+                **({"category": it.category, "image_index": it.image_index, "rotation": it.rotation}
                    if it.image_index is not None else {}),
             }
             for it in item_set

@@ -1,0 +1,20 @@
+# @package _global_.items
+#
+# Sampled vectors, two groups of two A-B pairs: corr(A1, A2) = 0,
+# corr(B1, B2) = 0.9 within a group, nothing shared across groups. Exact Gram
+# matrices. For the behavioral repulsion score (ab_*_behavioral experiments).
+
+generation_mode: exact
+items:
+  - name: A
+    corr_within: 0.0
+    corr_between: 0.0
+    n_groups: 2
+    n_items: 2
+    dim: 64
+  - name: B
+    corr_within: 0.9
+    corr_between: 0.0
+    n_groups: 2
+    n_items: 2
+    dim: 64

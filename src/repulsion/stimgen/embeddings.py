@@ -1,7 +1,8 @@
 """Image embeddings from ImageNet-pretrained torchvision models.
 
 Used by the ``"image"`` stimulus type (see :mod:`repulsion.stimgen.image_items`).
-Each item is the embedding of exactly one image. Images are chosen from the
+Each item is the embedding of exactly one image, optionally rotated (applied
+after resizing to the network's input resolution, before the center crop). Images are chosen from the
 class labels alone, and only the chosen images are run through the network;
 their embeddings are cached per (dataset, split, model, weights, layer, pool)
 in ``<data_dir>/embeddings/`` so repeated runs do not recompute them.
@@ -112,18 +113,23 @@ class ImageBank:
         self.labels = labels
         self.class_names = class_names
 
-    def embed(self, indices) -> np.ndarray:
-        """Embeddings (len(indices), dim) of the given images, computing only uncached ones."""
-        indices = np.asarray(indices, dtype=np.int64)
-        cache = _cache_path(self.source)
-        cached = _read_cache(cache)
-        missing = sorted({int(i) for i in indices} - set(cached))
-        if missing:
-            features = _run_model(self.source, self.images[missing])
-            new = dict(zip(missing, features))
-            _write_cache(cache, {**_read_cache(cache), **new})  # re-read: another run may have added entries
-            cached.update(new)
-        return np.stack([cached[int(i)] for i in indices]).astype(np.float64)
+    def embed(self, indices, rotations=None) -> np.ndarray:
+        """Embeddings (len(indices), dim) of the given images, each rotated by the matching
+        entry of *rotations* (degrees, default 0); computes only uncached ones."""
+        indices = [int(i) for i in indices]
+        rotations = [0.0] * len(indices) if rotations is None else [float(r) for r in rotations]
+        out = {}
+        for rotation in sorted(set(rotations)):
+            cache = _cache_path(self.source, rotation)
+            cached = _read_cache(cache)
+            missing = sorted({i for i, r in zip(indices, rotations) if r == rotation} - set(cached))
+            if missing:
+                features = _run_model(self.source, self.images[missing], rotation)
+                new = dict(zip(missing, features))
+                _write_cache(cache, {**_read_cache(cache), **new})  # re-read: another run may have added entries
+                cached.update(new)
+            out.update({(i, rotation): cached[i] for i, r in zip(indices, rotations) if r == rotation})
+        return np.stack([out[i, r] for i, r in zip(indices, rotations)]).astype(np.float64)
 
 
 @functools.lru_cache(maxsize=None)
@@ -151,10 +157,11 @@ def _resolved_weights(source: ImageSource):
     return get_model_weights(source.model)[source.weights]
 
 
-def _cache_path(source: ImageSource) -> Path:
+def _cache_path(source: ImageSource, rotation: float = 0.0) -> Path:
     weights = _resolved_weights(source).name  # e.g. DEFAULT -> IMAGENET1K_V1, so caches never mix
     pool = f"_{source.pool}" if source.layer in _SPATIAL_SIZE else ""
-    name = f"{source.dataset}_{source.split}_{source.model}_{weights}_{source.layer}{pool}.npz"
+    rot = f"_rot{rotation:g}" if rotation else ""
+    name = f"{source.dataset}_{source.split}_{source.model}_{weights}_{source.layer}{pool}{rot}.npz"
     return data_dir(source) / "embeddings" / name
 
 
@@ -189,8 +196,25 @@ def _feature_extractor(model_name: str, weights_name: str, layer: str):
     return extractor, weights.transforms(), device
 
 
-def _run_model(source: ImageSource, images: np.ndarray, batch_size: int = 64) -> np.ndarray:
-    """Features (len(images), dim) of uint8 HWC images, preprocessed as for the weights.
+def _preprocess(x, transform, rotation: float):
+    """The weights' preprocessing (resize, center crop, rescale, normalize) of uint8 NCHW
+    images, with a rotation by *rotation* degrees inserted after the resize."""
+    if not rotation:
+        return transform(x)
+    import torch
+    from torchvision.transforms import InterpolationMode
+    from torchvision.transforms import functional as F
+
+    x = F.resize(x, transform.resize_size, interpolation=transform.interpolation, antialias=transform.antialias)
+    x = F.rotate(x, rotation, interpolation=InterpolationMode.BILINEAR)
+    x = F.center_crop(x, transform.crop_size)
+    x = F.convert_image_dtype(x, torch.float)
+    return F.normalize(x, mean=transform.mean, std=transform.std)
+
+
+def _run_model(source: ImageSource, images: np.ndarray, rotation: float = 0.0, batch_size: int = 64) -> np.ndarray:
+    """Features (len(images), dim) of uint8 HWC images, preprocessed as for the weights
+    (rotated by *rotation* degrees, see _preprocess).
 
     Arrays cross between NumPy and torch via .tolist() rather than
     torch.from_numpy / .numpy(), which fail when torch was built against a
@@ -204,7 +228,7 @@ def _run_model(source: ImageSource, images: np.ndarray, batch_size: int = 64) ->
         for start in range(0, len(images), batch_size):
             batch = images[start:start + batch_size]
             x = torch.tensor(batch.tolist(), dtype=torch.uint8).permute(0, 3, 1, 2)
-            h = extractor(transform(x).to(device))["out"]
+            h = extractor(_preprocess(x, transform, rotation).to(device))["out"]
             if h.ndim == 4:
                 h = h.mean(dim=(2, 3)) if source.pool == "avg" else h.flatten(1)
             out.append(np.array(h.cpu().tolist(), dtype=np.float32))

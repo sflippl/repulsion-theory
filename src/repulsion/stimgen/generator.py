@@ -67,6 +67,7 @@ class Item:
     angle: float | None = None  # ground-truth angle in degrees; set for circular items only
     category: str | None = None     # image class name; set for image items only
     image_index: int | None = None  # index of the image in its dataset split; image items only
+    rotation: float | None = None   # rotation of that image in degrees; image items only
 
     def __repr__(self) -> str:  # noqa: D401
         return (

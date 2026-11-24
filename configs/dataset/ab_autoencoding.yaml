@@ -23,6 +23,17 @@ tasks:
         magnitude: 1.0
       B:
         magnitude: 1.0
+  # Evaluation only: [A, B] read out from A alone (behavioral repulsion score:
+  # is the B read-out pushed away from the pairmate's B?).
+  - name: a_to_ab
+    input:
+      A:
+        magnitude: 1.0
+    output:
+      A:
+        magnitude: 1.0
+      B:
+        magnitude: 1.0
   # Evaluation only: hidden representations of A alone and of B alone.
   - name: a_input
     input:

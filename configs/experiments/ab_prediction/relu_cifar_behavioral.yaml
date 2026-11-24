@@ -1,0 +1,16 @@
+# @package _global_
+#
+# Full-batch prediction of B from A, for the behavioral repulsion score: ReLU network, CIFAR-100,
+# A: one category for all items, B: same image within group with the second item
+# rotated by 90 degrees, different categories across groups.
+# Plain gradient descent, learning rate scaled to the input norm (CIFAR features: ~26 per slot).
+defaults:
+  - override /model: relu_small_init
+  - override /dataset: ab_prediction
+  - override /schedule: ab_prediction_fullbatch
+  - override /items: ab_cifar_rot90
+  - override /evaluation: ab_prediction
+
+training:
+  lr: 2.0e-4
+  momentum: 0.0

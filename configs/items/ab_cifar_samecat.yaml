@@ -1,0 +1,23 @@
+# @package _global_.items
+#
+# CIFAR-100 A-B pairs (ResNet-18 avgpool embeddings, one image per item), two
+# groups of two pairs. For the behavioral repulsion score (ab_*_behavioral).
+# A: one category shared by all items (different images).
+# B: same category within a group (different images), different categories
+#    across groups. A and B never share a category or an image.
+
+items:
+  - name: A
+    stimulus_type: image
+    source: {dataset: cifar100, split: train, model: resnet18, weights: DEFAULT, layer: avgpool}
+    n_groups: 2
+    n_items: 2
+    within_group: same_category
+    across_groups: same_category
+  - name: B
+    stimulus_type: image
+    source: {dataset: cifar100, split: train, model: resnet18, weights: DEFAULT, layer: avgpool}
+    n_groups: 2
+    n_items: 2
+    within_group: same_category
+    across_groups: different_category

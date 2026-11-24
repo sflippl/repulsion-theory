@@ -93,6 +93,8 @@ def generate_image_items(item_spec: ItemSpec, rng: np.random.Generator, context:
     key = (item_spec.source.dataset, item_spec.source.split, str(embeddings.data_dir(item_spec.source)))
     pool = context.setdefault(("image_pool",) + key, _Pool(bank.labels))
     indices = sample_image_indices(item_spec, pool, bank.class_names, rng)
-    vectors = bank.embed(indices)
-    meta = [{"category": bank.class_names[bank.labels[i]], "image_index": i} for i in indices]
+    rotations = [k * sg.rotation for sg in item_spec.subgroups for _ in range(sg.n_groups) for k in range(sg.n_items)]
+    vectors = bank.embed(indices, rotations) if any(rotations) else bank.embed(indices)
+    meta = [{"category": bank.class_names[bank.labels[i]], "image_index": i, "rotation": r}
+            for i, r in zip(indices, rotations)]
     return vectors, meta

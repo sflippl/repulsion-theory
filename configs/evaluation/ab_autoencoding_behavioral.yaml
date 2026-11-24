@@ -1,0 +1,31 @@
+# @package _global_.evaluation
+#
+# As ab_autoencoding, plus the outputs for A-only input (B read out from A
+# alone; behavioral repulsion score). Logged at geometrically spaced steps
+# (factor 1.1, plus step 0).
+
+evaluations:
+  - name: representations_a
+    task: a_input
+    save: representation
+    eval_every_log_steps: 1.1
+
+  - name: representations_b
+    task: b_input
+    save: representation
+    eval_every_log_steps: 1.1
+
+  - name: output_a_to_ab
+    task: a_to_ab
+    save: output
+    eval_every_log_steps: 1.1
+
+  - name: output_autoencoding
+    task: autoencoding
+    save: output
+    eval_every_log_steps: 1.1
+
+  - name: loss_autoencoding
+    task: autoencoding
+    save: loss
+    eval_every_log_steps: 1.1

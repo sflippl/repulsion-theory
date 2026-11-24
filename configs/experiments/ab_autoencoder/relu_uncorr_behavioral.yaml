@@ -1,0 +1,15 @@
+# @package _global_
+#
+# Full-batch autoencoding of A-B pairs, for the behavioral repulsion score: ReLU network, sampled vectors, corr(A) = 0, corr(B1, B2) = 0.9.
+# Plain gradient descent, learning rate scaled to the input norm
+# (sampled vectors: unit norm; CIFAR features: ~26 per slot).
+defaults:
+  - override /model: relu_small_init
+  - override /dataset: ab_autoencoding
+  - override /schedule: ab_fullbatch
+  - override /items: ab_uncorr_rhoB09
+  - override /evaluation: ab_autoencoding_behavioral
+
+training:
+  lr: 0.02
+  momentum: 0.0

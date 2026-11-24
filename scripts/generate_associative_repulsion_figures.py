@@ -170,7 +170,9 @@ def simulate_pairmate_score(rho_sA, rho_sB, phi_in, phi_out, gamma, n_steps, lr,
 def simulate_D1_D2(rho_sA, rho_sB, phi_in, gamma, n_steps=150_000, lr=0.02,
                     G=2, M=2, DA=25, d_hidden=80, seed=0, phi_out=0.4, loss_threshold=1e-8):
     """D1 = cosine distance to ground truth = 1 - corr(vB_hat, vB).
-    D2 = relative distance to pairmate = rho_sB - corr(vB_hat, vB_pairmate).
+    D2 = behavioral repulsion score = rho_sB - corr(vB_hat, vB_pairmate).
+    vB_hat is first projected onto the plane spanned by vB and vB_pairmate (as
+    in the Chanales "response away from competitor" metric).
     phi_out is arbitrary (D1, D2 are provably phi_out-independent); kept
     fixed here just to have a concrete target to train on."""
     X, Y, Z, _, vB = build_associative_repulsion_data(rho_sA, rho_sB, phi_in, phi_out, G, M, DA)
@@ -180,6 +182,11 @@ def simulate_D1_D2(rho_sA, rho_sB, phi_in, gamma, n_steps=150_000, lr=0.02,
         pred_err = torch.linalg.norm(Y - model(X)).item()
         Yhat = model(Z).numpy()
     vB_hat = Yhat[:, DA:] / np.sqrt(1 - phi_out)
+    e1 = vB[0] / np.linalg.norm(vB[0])
+    v = vB[1] - (vB[1] @ e1) * e1
+    if np.linalg.norm(v) > 1e-12:  # rho_sB < 1: project onto the plane spanned by the pairmates' B
+        e2 = v / np.linalg.norm(v)
+        vB_hat = np.outer(vB_hat @ e1, e1) + np.outer(vB_hat @ e2, e2)
     corr_gt = np.dot(vB_hat[0], vB[0]) / (np.linalg.norm(vB_hat[0]) * np.linalg.norm(vB[0]))
     corr_pm = np.dot(vB_hat[0], vB[1]) / (np.linalg.norm(vB_hat[0]) * np.linalg.norm(vB[1]))
     D1 = 1 - corr_gt
@@ -305,6 +312,29 @@ def D1_D2(rho_sA, rho_sB, phi_in):
     corr_gt = (r * P + N) / denom
     corr_pm = (r * P - N) / denom
     return 1 - corr_gt, rho_sB - corr_pm
+
+
+def behavioral_repulsion_score(rho_sA, rho_sB, phi_in):
+    """Behavioral repulsion score (gamma -> 0) = D2 = rho_sB - corr(vB_hat, vB_pairmate):
+    how far the B read out from A alone is pushed away from the pairmate's B
+    (positive = repulsion)."""
+    return D1_D2(rho_sA, rho_sB, phi_in)[1]
+
+
+def behavioral_repulsion_angle(rho_sA, rho_sB, phi_in):
+    """Behavioral repulsion score as a signed angle (gamma -> 0, degrees): rotation of the
+    B read out from A alone away from the pairmate's B, within their plane (positive =
+    repulsion). With vB_hat ∝ r (vB + vB_pm) + (vB - vB_pm) and alpha = arccos(rho_sB),
+    angle = arctan(tan(alpha / 2) / r) - alpha / 2."""
+    r = r_ratio(rho_sA, rho_sB, phi_in)
+    half = np.arccos(np.clip(rho_sB, -1, 1)) / 2
+    return np.degrees(np.arctan(np.tan(half) / r) - half)
+
+
+def score_to_angle(score, rho_sB):
+    """Signed angle (degrees, positive = repulsion) of a read-out in the plane of B and its
+    pairmate with behavioral repulsion score rho_sB - corr(vB_hat, vB_pm) = *score*."""
+    return np.degrees(np.arccos(np.clip(rho_sB - score, -1, 1)) - np.arccos(np.clip(rho_sB, -1, 1)))
 
 
 def pairmate_score(rho_sA, rho_sB, phi_in, phi_out, gamma, M=2):
@@ -989,7 +1019,7 @@ def fig_regions(out_dir, seed=0):
 
 def fig_D1_D2_curves_and_heatmaps(out_dir, seed=0):
     """associative-repulsion-2/plot{1,2,3,4}_*: D1 (cosine distance to
-    ground truth) and D2 (pairmate bias) as curves vs. rho_sB and as
+    ground truth) and D2 (behavioral repulsion score) as curves vs. rho_sB and as
     heatmaps over (rho_sA, rho_sB), with trained-network overlays."""
     rho_sA_fixed = 0.0
     phi_in_values = [0.25, 0.5, 0.75, 1.0]
@@ -1053,7 +1083,7 @@ def fig_D1_D2_curves_and_heatmaps(out_dir, seed=0):
         ax3.scatter(rho_sB_sim, sim_D2[phi_in], color=color, s=5)
     ax3.axhline(0, color="gray", linewidth=0.8, linestyle=":")
     ax3.set_xlabel(r"$\rho_{s,B}$", fontsize=7)
-    ax3.set_ylabel("Pairmate bias", fontsize=7)
+    ax3.set_ylabel("Behavioral repulsion score", fontsize=7)
     ax3.set_xticklabels(ax3.get_xticks(), fontsize=6)
     ax3.set_yticklabels(ax3.get_yticks(), fontsize=6)
     ax3.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.02, 0.5),
@@ -1073,9 +1103,9 @@ def fig_D1_D2_curves_and_heatmaps(out_dir, seed=0):
     ax4.set_ylabel(r"$\rho_{s,B}$", fontsize=7)
     ax4.set_xticklabels(ax4.get_xticks(), fontsize=6)
     ax4.set_yticklabels(ax4.get_yticks(), fontsize=6)
-    cbar = fig4.colorbar(im4, ax=ax4, label="Pairmate bias")
+    cbar = fig4.colorbar(im4, ax=ax4, label="Behavioral repulsion score")
     cbar.ax.tick_params(labelsize=7)
-    cbar.set_label("Pairmate bias", fontsize=7)
+    cbar.set_label("Behavioral repulsion score", fontsize=7)
     fig4.savefig(os.path.join(out_dir, "associative-repulsion-2", "plot4_D2_heatmap.pdf"),
                  dpi=300, bbox_inches="tight")
     plt.close(fig4)

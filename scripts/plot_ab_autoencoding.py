@@ -12,8 +12,17 @@ A second figure shows only the A representations of all setups: predictive
 network in the first row (panel tag A), autoencoder in the second (tag B), one
 column per setup (OVERVIEW_ROWS; setups without complete runs are left blank).
 
-Writes figures/ab-autoencoding/<task>_<setup>.{pdf,png} and
-figures/ab-autoencoding/a_similarity.{pdf,png}.
+A third figure shows the behavioral repulsion score of the *_behavioral setups
+in the same layout (BEHAVIORAL_ROWS, BEHAVIORAL_SETUPS; CIFAR B pairmates are
+the same image, the second rotated by 90 degrees): the B read out from A alone is
+projected onto the plane spanned by the item's B and its pairmate's B, and the
+score is its signed angle (degrees) from the item's B, positive when rotated
+away from the pairmate's B, averaged over items. A read-out in a random
+direction (e.g. at initialization) scores 0 on average, a perfect one exactly 0.
+
+Writes figures/ab-autoencoding/<task>_<setup>.{pdf,png},
+figures/ab-autoencoding/a_similarity.{pdf,png} and
+figures/ab-autoencoding/behavioral_repulsion.{pdf,png}.
 
 Usage:
     python scripts/plot_ab_autoencoding.py
@@ -37,6 +46,9 @@ from plot_common import (FONTSIZE, LINEWIDTH, TICK_FONTSIZE, label_axis, mean_se
 SETUPS = ["relu_uncorr", "relu_corr", "linear_cifar", "relu_cifar"]
 OVERVIEW_ROWS = [("A", "Pred. network", "data/ab_prediction"), ("B", "Autoencoder", "data/ab_autoencoder")]
 DEFAULT_DIRS = [f"{root}/{setup}" for _, _, root in OVERVIEW_ROWS for setup in SETUPS]
+BEHAVIORAL_SETUPS = [f"{setup}_behavioral" for setup in SETUPS]
+BEHAVIORAL_ROWS = [("A", "Pred. network", "data/ab_prediction", "output_prediction"),
+                   ("B", "Autoencoder", "data/ab_autoencoder", "output_a_to_ab")]
 OUT_DIR = "figures/ab-autoencoding"
 RELATION_COLORS = {"within": "black", "across": "tab:orange"}  # as in residual_repulsion.ipynb
 RELATION_LABELS = {"within": "Within group", "across": "Across groups"}
@@ -72,6 +84,32 @@ def similarities(run_dir: str, probe: str) -> tuple[np.ndarray, dict[str, np.nda
     return steps, {"within": C[:, within].mean(1), "across": C[:, ~same].mean(1)}
 
 
+def behavioral_scores(run_dir: str, probe: str, metric: str = "angle") -> tuple[np.ndarray, np.ndarray]:
+    """Steps and behavioral repulsion score at each step: mean over items of the signed
+    angle (degrees) of B_hat, the B read out by output probe *probe*, from B in the plane
+    spanned by B and B_pairmate (as the Chanales "response away from competitor"
+    metric); positive = rotated away from the pairmate's B.
+
+    metric="score" instead gives the closed-form theory's score in that plane,
+    cos(B, B_pairmate) - cos(B_hat, B_pairmate) = cos(alpha) - cos(alpha + angle).
+    """
+    B_hat = np.load(os.path.join(run_dir, f"{probe}_combined_B.npy"))  # (steps, items, dim)
+    B = np.load(os.path.join(run_dir, f"{probe}_target_B.npy"))         # (items, dim)
+    rows = json.load(open(os.path.join(run_dir, f"{probe}_rows.json")))
+    steps = np.load(os.path.join(run_dir, f"{probe}_steps.npy"))
+    groups = [r["group_id"] for r in rows]
+    mate = np.array([next(j for j in range(len(rows)) if groups[j] == g and j != i) for i, g in enumerate(groups)])
+    unit = lambda v: v / np.maximum(np.linalg.norm(v, axis=-1, keepdims=True), 1e-12)
+    # orthonormal basis of the plane: B along e1 (angle 0), B_pairmate at a positive angle
+    e1 = unit(B)
+    e2 = unit(B[mate] - (B[mate] * e1).sum(-1, keepdims=True) * e1)
+    angle = np.arctan2((B_hat * e2[None]).sum(-1), (B_hat * e1[None]).sum(-1))  # (steps, items)
+    if metric == "score":
+        alpha = np.arctan2((B[mate] * e2).sum(-1), (B[mate] * e1).sum(-1))       # pairmate's angle (items,)
+        return steps, (np.cos(alpha)[None] - np.cos(alpha[None] - angle)).mean(1)
+    return steps, -np.degrees(angle).mean(1)
+
+
 def relation_label(item: dict) -> str:
     """Compact within / across description of one item type from its config."""
     if item.get("stimulus_type") == "image":
@@ -105,6 +143,8 @@ def setup_labels(run_dir: str) -> tuple[str, dict[str, str]]:
 def compact_setup_label(run_dir: str) -> str:
     """e.g. "ReLU, ρ = 0.5" (sampled vectors, A correlation) or "Linear, CIFAR-100"."""
     items, network, stimuli = load_config(run_dir)
+    if items.get("B", {}).get("rotation"):
+        return f"{network}, B rot. {items['B']['rotation']:g}°"
     if stimuli == "CIFAR-100":
         return f"{network}, {stimuli}"
     return f"{network}, {relation_label(items['A']).replace(' within & across', '')}"
@@ -181,6 +221,43 @@ def plot_a_overview(out_paths: list[str]) -> None:
     save_figure(fig, out_paths)
 
 
+def plot_behavioral_overview(out_paths: list[str], setups: list[str] = SETUPS) -> None:
+    """Behavioral repulsion score over training: one row per task (BEHAVIORAL_ROWS), one column per setup."""
+    complete = lambda d, probe: os.path.exists(os.path.join(d, f"{probe}_combined_B.npy")) and \
+        os.path.exists(os.path.join(d, ".hydra", "config.yaml"))
+    runs = {(r, c): sorted(d for d in glob.glob(f"{root}/{setup}/*") if complete(d, probe))
+            for r, (_, _, root, probe) in enumerate(BEHAVIORAL_ROWS) for c, setup in enumerate(setups)}
+    n_rows, n_cols = len(BEHAVIORAL_ROWS), len(setups)
+    fig, axes = plt.subplots(n_rows, n_cols, sharex=True, squeeze=False,
+                             figsize=(n_cols * OVERVIEW_PANEL_MM[0] / 25.4, n_rows * OVERVIEW_PANEL_MM[1] / 25.4))
+    fig.subplots_adjust(wspace=0.45, hspace=0.25)
+    for c, setup in enumerate(setups):
+        available = [runs[r, c] for r in range(n_rows) if runs[r, c]]
+        title = compact_setup_label(available[0][0]) if available else setup
+        for r, (tag, row_label, _, probe) in enumerate(BEHAVIORAL_ROWS):
+            ax = axes[r, c]
+            if runs[r, c]:
+                per_run = [behavioral_scores(d, probe) for d in runs[r, c]]
+                x = np.maximum(per_run[0][0], 1)  # log axis: step 0 (initialization) at 1
+                mean, sem = mean_sem([s for _, s in per_run])
+                ax.axhline(0, color="0.35", linestyle=":", lw=0.9, zorder=1)
+                ax.fill_between(x, mean - sem, mean + sem, color="black", alpha=0.25, linewidth=0)
+                ax.plot(x, mean, color="black", lw=LINEWIDTH)
+                ax.set_xscale("log")
+                ax.set_xlim(1, x[-1])
+                ax.set_xlabel("Steps" if r == n_rows - 1 else "", fontsize=FONTSIZE, labelpad=1)
+                ax.tick_params(axis="both", which="major", labelsize=TICK_FONTSIZE, pad=1)
+                ax.spines[["top", "right"]].set_visible(False)
+            else:
+                ax.set_axis_off()
+            label_axis(ax, ylabel="Behavioral\nrepulsion score (°)" if c == 0 else None,
+                       title=title if r == 0 else None, tag=tag if c == 0 else None, tag_x=-0.75)
+            if c == 0:
+                ax.text(-0.75, 0.5, row_label, transform=ax.transAxes, rotation=90, ha="center", va="center",
+                        fontsize=FONTSIZE)
+    save_figure(fig, out_paths)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("sweep_dirs", nargs="*", help="data/ab_<task>/<setup> directories")
@@ -198,6 +275,10 @@ def main():
         plot_result(sweep_dir, [os.path.join(args.out_dir, f"{task}_{setup}.{e}") for e in args.ext])
     if any(seed_dirs(d) for d in DEFAULT_DIRS):
         plot_a_overview([os.path.join(args.out_dir, f"a_similarity.{e}") for e in args.ext])
+    if any(glob.glob(f"{root}/{setup}/*/{probe}_combined_B.npy")
+           for _, _, root, probe in BEHAVIORAL_ROWS for setup in BEHAVIORAL_SETUPS):
+        plot_behavioral_overview([os.path.join(args.out_dir, f"behavioral_repulsion.{e}") for e in args.ext],
+                                 BEHAVIORAL_SETUPS)
 
 
 if __name__ == "__main__":

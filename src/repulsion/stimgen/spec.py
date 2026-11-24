@@ -36,6 +36,10 @@ Two stimulus types are supported:
         ``same_category`` requires ``within_group`` other than
         ``different_category``.
 
+    ``rotation`` (degrees, default 0; requires ``within_group: same_image``)
+    rotates item k of each group by (k - 1) * rotation, e.g. 10 makes the second
+    item of a two-item group the same image rotated by 10 degrees.
+
     Classes and images are never reused across groups, subgroups or item
     types (except within a ``same_image`` group, or across groups with
     ``across_groups: same_category``). ``categories`` (class names) restricts
@@ -60,7 +64,7 @@ Inheritance:
     Subgroup fields not explicitly set are inherited from the parent item dict.
     Fields that can be inherited: n_groups, n_items, magnitude, dim,
     corr_within, corr_between, distance, bump_width, within_group,
-    across_groups.
+    across_groups, rotation.
 """
 from __future__ import annotations
 
@@ -90,6 +94,7 @@ class SubgroupSpec:
     # Image stimulus type fields (None otherwise)
     within_group: str | None = None   # same_image | same_category | different_category
     across_groups: str | None = None  # same_category | different_category
+    rotation: float = 0.0             # image items: item k of a group is rotated by (k - 1) * rotation degrees
 
 
 @dataclass(frozen=True)
@@ -332,6 +337,9 @@ def _parse_image(item_dict: dict, name: str, n_groups: int, n_items: int,
             raise ValueError(f"{where}: within_group must be one of {WITHIN_GROUP_RELATIONS}, got {within!r}.")
         if across not in ACROSS_GROUP_RELATIONS:
             raise ValueError(f"{where}: across_groups must be one of {ACROSS_GROUP_RELATIONS}, got {across!r}.")
+        rotation = float(sg_dict.get("rotation", item_dict.get("rotation", 0.0)))
+        if rotation and within != "same_image":
+            raise ValueError(f"{where}: rotation requires within_group='same_image', got {within!r}.")
         if within == "different_category" and across == "same_category":
             raise ValueError(
                 f"{where}: across_groups='same_category' is impossible with "
@@ -349,6 +357,7 @@ def _parse_image(item_dict: dict, name: str, n_groups: int, n_items: int,
                 dim=dim,
                 within_group=within,
                 across_groups=across,
+                rotation=rotation,
             )
         )
     categories = item_dict.get("categories")
